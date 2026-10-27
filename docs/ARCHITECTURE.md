@@ -3,6 +3,8 @@
 This document describes the V1 architecture of `support-agent`: the systems it connects, how it retrieves knowledge, how it reproduces bugs, the policies that constrain it, and how it evolves into a production deployment.
 
 > **Status legend:** ✅ built · 🚧 in progress · 📋 planned
+>
+> **Build log:** what has been implemented and how it was validated is recorded per phase at the end of this document. See [Phase 1: ServiceNow Integration and LangGraph Setup](#phase-1-servicenow-integration-and-langgraph-setup).
 
 ## 1. The scenario
 
@@ -83,19 +85,19 @@ flowchart LR
 |---|---|---|---|
 | **ServiceNow setup** | `scripts/servicenow_setup.py` | Idempotent provisioning of groups, service accounts, and scoped KB | ✅ |
 | **Seeder** | `scripts/seed_incidents.py`, `data/seed/` | Loads synthetic callers and incidents as `seed_loader` | ✅ |
-| **Queue poller** | `src/agent/` | Polls incidents assigned to *AI Support Agent* that changed since the last cursor | 📋 |
-| **Orchestrator** | `src/agent/` | Per-ticket loop: triage → research → plan → act → disposition. Enforces step, token, and time budgets | 📋 |
-| **Model router** | `src/agent/` | Small model for triage/classification. Strong model for reasoning, drafting, repro planning | 📋 |
-| **Retrieval** | `src/tools/` + SQLite | Syncs KB articles and resolved incidents into a local search index. Serves `search_kb` and `search_similar_tickets` (§5) | 📋 |
-| **Typed tools** | `src/tools/` | One module per tool, with Pydantic input/output schemas | 📋 |
-| **ServiceNow client** | `src/tools/` | Incidents, journal entries (work notes, comments), KB, callers | 📋 |
-| **Jira client** | `src/tools/` | Search (JQL), create, comment, attach | 📋 |
-| **ERPNext client** | `src/tools/` | REST API for creating repro test data (fixtures) only | 📋 |
-| **Browser worker** | `src/tools/` | Drives Chrome over CDP against ERPNext: login, navigate, click, type, screenshot, collect errors | 📋 |
-| **Guardrails** | `src/guardrails/` | Autonomy policy, injection screening, argument validation, URL allow-list, idempotency, kill switch | 📋 |
-| **Review UI** | `src/review_ui/` | Local page to approve, edit, or reject pending actions | 📋 |
+| **Queue poller** | `src/support_agent/` | Polls incidents assigned to *AI Support Agent* that changed since the last cursor | 📋 |
+| **Orchestrator** | `src/support_agent/graph/` | **LangGraph** `StateGraph`: triage → research → plan → act → disposition. Enforces step, token, and time budgets. Phase 1: read-only retrieve → format graph | 🚧 |
+| **Model router** | `src/support_agent/graph/` | Small model for triage/classification. Strong model for reasoning, drafting, repro planning | 📋 |
+| **Retrieval** | `src/support_agent/tools/` + SQLite | Syncs KB articles and resolved incidents into a local search index. Serves `search_kb` and `search_similar_tickets` (§5) | 📋 |
+| **Typed tools** | `src/support_agent/tools/` | One module per tool, with Pydantic input/output schemas | 📋 |
+| **ServiceNow client** | `src/support_agent/servicenow/` | Incidents, journal entries (work notes, comments), KB, callers. Phase 1: read-only `get_incident` | 🚧 |
+| **Jira client** | `src/support_agent/tools/` | Search (JQL), create, comment, attach | 📋 |
+| **ERPNext client** | `src/support_agent/tools/` | REST API for creating repro test data (fixtures) only | 📋 |
+| **Browser worker** | `src/support_agent/tools/` | Drives Chrome over CDP against ERPNext: login, navigate, click, type, screenshot, collect errors | 📋 |
+| **Guardrails** | `src/support_agent/guardrails/` | Autonomy policy, injection screening, argument validation, URL allow-list, idempotency, kill switch | 📋 |
+| **Review UI** | `src/support_agent/review_ui/` | Local page to approve, edit, or reject pending actions | 📋 |
 | **State store** | SQLite | Poll cursor, runs, approvals, idempotency keys, search index | 📋 |
-| **Trace writer** | `src/agent/` | `traces/<ticket>/<run_id>/trace.json` + screenshots | 📋 |
+| **Trace writer** | `src/support_agent/graph/` | `traces/<ticket>/<run_id>/trace.json` + screenshots. Optional LangSmith tracing is already available | 📋 |
 | **Demo system** | `demo_app/` | Docker Compose for a pinned ERPNext + fixtures for the fictional company | 📋 |
 | **Evals** | `evals/` | Golden tickets, runner, scoring | 📋 |
 
@@ -278,7 +280,7 @@ All secrets live only in gitignored `.env` files and are redacted from traces.
 
 ## 10. Autonomy and guardrail policy
 
-The policy is declarative (`src/guardrails/`) and evaluated **outside** the model:
+The policy is declarative (`src/support_agent/guardrails/`) and evaluated **outside** the model:
 
 | Action | Mode | Notes |
 |---|---|---|
@@ -387,3 +389,268 @@ flowchart LR
 | 2 | Rename KB "Customer Portal Support" now that the demo system is ERPNext? | Rename to **"ERPNext Support"** via the setup script |
 | 3 | Store the Jira key on the incident in a custom field? | Add `u_jira_issue` via setup script (admin). Work note in the meantime |
 | 4 | Embeddings provider, if needed | Decide after the retrieval eval (§13) |
+
+---
+
+# Build log
+
+## Phase 1: ServiceNow Integration and LangGraph Setup
+
+**Status: ✅ complete (2026-10-27).** Read-only. No LLM calls, no writes to ServiceNow.
+
+> Numbering note: this is the first *implementation* phase. It covers the "Read the queue" groundwork in [TASKS.md](TASKS.md) Phase 1, scoped to retrieving a single incident through a LangGraph workflow.
+
+### P1.1 Goal
+
+Prove the end-to-end skeleton the agent will grow on: typed configuration → a read-only ServiceNow client → a LangGraph workflow → a terminal command and a visual debugger (LangSmith Studio) → automated tests.
+
+### P1.2 What was built
+
+| Component | Location | Status |
+|---|---|---|
+| Configuration (typed, env-based, password hidden from `repr`) | `src/support_agent/config.py` | ✅ |
+| ServiceNow client (read-only, typed errors) | `src/support_agent/servicenow/client.py` | ✅ |
+| Incident model (Pydantic) | `src/support_agent/servicenow/models.py` | ✅ |
+| Graph state (typed input / output / internal) | `src/support_agent/graph/state.py` | ✅ |
+| Graph nodes | `src/support_agent/graph/nodes.py` | ✅ |
+| Graph definition + Studio entry point | `src/support_agent/graph/workflow.py` | ✅ |
+| Terminal interface | `src/support_agent/cli.py`, `main.py` | ✅ |
+| LangGraph dev server / Studio config | `langgraph.json` | ✅ |
+| Optional LangSmith tracing | `.env` (`LANGSMITH_*`) | ✅ (off by default) |
+| Tests (mocked ServiceNow) | `tests/` | ✅ 30 offline + 1 live |
+| RAG, LLM analysis, polling, webhooks, Jira, ERPNext | n/a | 📋 later phases |
+
+### P1.3 Architecture
+
+```mermaid
+flowchart LR
+    subgraph Entry["Entry points"]
+        CLI["Terminal<br/>python main.py --incident INC0010001"]
+        STUDIO["LangSmith Studio<br/>(browser)"]
+    end
+
+    DEV["langgraph dev<br/>local API server :2024<br/>(langgraph.json)"]
+
+    subgraph Pkg["support_agent package"]
+        subgraph G["graph/ (LangGraph)"]
+            S((START)) --> R[retrieve_incident]
+            R --> F[format_incident]
+            F --> E((END))
+        end
+        CFG[config.py<br/>ServiceNowSettings]
+        SNC[servicenow/client.py<br/>ServiceNowClient: GET only]
+        M[servicenow/models.py<br/>Incident]
+    end
+
+    SN[(ServiceNow PDI<br/>Table API)]
+    LS[(LangSmith<br/>optional tracing)]
+
+    CLI -->|graph.invoke| G
+    STUDIO <-->|HTTP| DEV --> G
+    R --> SNC
+    CFG --> SNC
+    SNC -->|"GET /api/now/table/incident<br/>Basic Auth as support_agent"| SN
+    SNC --> M
+    G -. "LANGSMITH_TRACING=true" .-> LS
+```
+
+**Separation of concerns:**
+
+| Layer | Knows about | Doesn't know about |
+|---|---|---|
+| `config` | Environment variables | ServiceNow, LangGraph |
+| `servicenow` | Table API, HTTP, auth | LangGraph, terminal |
+| `graph` | State, nodes, flow | HTTP details (client injected through a factory) |
+| `cli` | Arguments, output | ServiceNow, HTTP |
+
+The client is **injected** into the graph (`build_graph(client_factory=...)`), so tests run the real graph with a mocked client, and later phases can swap in other clients (Jira, ERPNext) the same way.
+
+### P1.4 Tools and versions
+
+| Tool | Version | Purpose |
+|---|---|---|
+| Python | 3.11.4 (`.venv`) | Runtime |
+| LangGraph | 1.2.18 | Workflow / state machine |
+| LangGraph CLI (`[inmem]`) | 0.4.40 | `langgraph dev` local server for Studio |
+| langgraph-api | 0.16.7 | Dev server runtime (installed by the CLI) |
+| LangSmith SDK | 0.14.13 | Optional tracing, Studio |
+| Pydantic | 2.14.1 | Incident model, schemas |
+| requests | 2.34.2 | ServiceNow HTTP (reuses the existing working connection) |
+| python-dotenv | 1.2.4 | Load `.env` |
+| pytest | 9.1.1 | Tests |
+
+Dependencies are declared in `pyproject.toml` (runtime + `[dev]` extra). `langgraph.json` uses `"dependencies": ["."]`, so the dev server installs the same package.
+
+### P1.5 Install
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env        # then fill in SERVICENOW_* (see docs/SERVICENOW.md)
+```
+
+The ServiceNow connection reuses the existing `support_agent` service account and `.env` variables (`SERVICENOW_INSTANCE_URL`, `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD`). No new authentication was created.
+
+### P1.6 LangGraph workflow
+
+```
+START → retrieve_incident → format_incident → END
+```
+
+| Node | Reads | Writes | Behavior |
+|---|---|---|---|
+| `retrieve_incident` | `incident_id` | `incident`, `error`, `error_type` | Calls `ServiceNowClient.get_incident`. Every `ServiceNowError` is caught and written to state, so the graph never crashes on API errors |
+| `format_incident` | `incident`, `error` | `display` | Renders a text card (or `ERROR (<type>): <message>`) for the terminal and Studio |
+
+**State schemas** (`graph/state.py`):
+- `InputState`: `incident_id` only. This is what Studio shows as the input form.
+- `OutputState`: `incident`, `error`, `display`. This is what callers get back.
+- `IncidentState`: internal, adds `error_type`.
+
+The workflow is deliberately linear. Later phases add nodes and conditional edges (triage → route by ticket type) without changing the entry points.
+
+### P1.7 ServiceNow API integration
+
+| Aspect | Implementation |
+|---|---|
+| Endpoint | `GET /api/now/table/incident` |
+| By number | `sysparm_query=number=INC0010001`, `sysparm_limit=1` |
+| By sys_id | `GET /api/now/table/incident/<sys_id>` |
+| Fields | `sys_id, number, short_description, description, priority, state, category, assignment_group, assigned_to, caller_id, opened_at` |
+| Display values | `sysparm_display_value=true`, `sysparm_exclude_reference_link=true` (names instead of sys_ids for group, assignee, caller) |
+| Auth | Basic Auth as `support_agent` (WSAO account, see [SERVICENOW.md](SERVICENOW.md) §5) |
+| Timeout | 30 s (`SERVICENOW_TIMEOUT_SECONDS`) |
+| Input validation | Identifier must match `INC\d{7,}` or a 32-hex sys_id. Anything else is rejected **before** any request, which also blocks encoded-query injection such as `INC001^ORactive=true` |
+| Errors | `InvalidIdentifierError`, `IncidentNotFoundError` (empty result / 404), `ServiceNowAuthError` (401), `ServiceNowPermissionError` (403), `ServiceNowError` (other HTTP, network, non-JSON). Messages contain only ServiceNow's error text |
+| Read-only | The client's only public method is `get_incident`, and it only issues GET. A test enforces both |
+
+### P1.8 Terminal commands
+
+```bash
+python main.py --incident INC0010001                          # by number
+python main.py --incident 7b17848cc3d05310783ef9477d013199    # by sys_id
+python main.py --incident INC0010001 --json                   # final graph state as JSON
+```
+
+Exit codes: `0` success, `1` error (not found, invalid id, auth, API). `main.py` adds `src/` to the path, so it also runs without `pip install -e .`.
+
+**Validated output (live, 2026-10-27):**
+
+```
+$ python main.py --incident INC0010001
+Number            : INC0010001
+Short description : Some ERPNext screens stay in English after switching my language to Arabic
+Priority          : 4 - Low
+State             : New
+Category          : Software
+Assignment group  : AI Support Agent
+Assigned to       : -
+Caller            : Amira Haddad
+Opened            : 2026-10-27 13:10:15
+sys_id            : 7b17848cc3d05310783ef9477d013199
+
+Description:
+  Hi,
+  I changed my ERPNext language to Arabic. ...
+
+$ python main.py --incident INC9999999
+ERROR (IncidentNotFoundError): Incident INC9999999 not found
+
+$ python main.py --incident "INC001^ORactive=true"
+ERROR (InvalidIdentifierError): 'INC001^ORactive=true' is not an incident number (e.g. INC0010001) or a 32-character sys_id
+```
+
+### P1.9 LangSmith Studio
+
+**`langgraph.json`:**
+
+```json
+{
+  "python_version": "3.11",
+  "dependencies": ["."],
+  "graphs": { "incident_workflow": "./src/support_agent/graph/workflow.py:graph" },
+  "env": ".env"
+}
+```
+
+**Run:**
+
+```bash
+source .venv/bin/activate
+langgraph dev            # API on http://127.0.0.1:2024, opens Studio
+```
+
+Studio URL: `https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`
+
+1. Sign in to LangSmith (free account) when prompted.
+2. Select the **incident_workflow** graph. It shows `__start__ → retrieve_incident → format_incident → __end__`.
+3. Enter `{"incident_id": "INC0010001"}` in the input form and click **Submit**.
+4. Click each node to inspect its state update (`incident`, `error`, `display`).
+
+**Optional tracing.** Set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env` to send runs to the LangSmith project `support-agent`. It's off by default, because traces include incident content. That's fine for synthetic data, but it's a data-sharing decision.
+
+**Browser note.** Safari blocks an HTTPS page from calling `http://127.0.0.1`. Use Chrome or Firefox, or run `langgraph dev --tunnel`.
+
+**Validated (2026-10-27):** dev server started, `GET /ok` → 200, graph `incident_workflow` registered (`POST /assistants/search`), and `POST /runs/wait` with `{"incident_id": "INC0010005"}` returned the real incident. That's the same API Studio uses. No blocking-I/O warnings were raised.
+
+### P1.10 Safety (read-only)
+
+| Requirement | How it's enforced |
+|---|---|
+| No incident modification | Client has no write methods and issues GET only (tested) |
+| No work notes or assignment changes | Same as above. No journal or PATCH code exists |
+| No LLM calls | No model SDK is imported or installed for runtime |
+| No credentials in logs | `ServiceNowSettings.password` has `repr=False`. Error messages contain only ServiceNow's error body (tested). `.env` is gitignored |
+| Least privilege | Runs as `support_agent` (API-only, `itil` via group), never `admin` |
+
+### P1.11 Testing results
+
+`pytest` (offline, mocked ServiceNow): **30 passed**. `pytest -m live` (running dev server): **1 passed**.
+
+| Area | Tests | Covers |
+|---|---|---|
+| ServiceNow client | 17 | By number, by sys_id, not found (empty / 404), invalid ids incl. injection (5), 401/403/500 mapping, network error, non-JSON, no password in errors or `repr`, read-only enforcement |
+| LangGraph | 5 | Graph structure (edges), node-by-node state transitions (`stream_mode="updates"`), output schema, not-found and auth errors flowing to `display` |
+| Terminal | 5 | Text output, `--json`, error exit code, required argument, `main.py` entry point |
+| Studio config | 3 + 1 live | `langgraph.json` valid, graph path resolves to a compiled graph, input schema is `incident_id` only. Live: dev server `/ok` and graph registration |
+
+Manual live validation: CLI by number and by sys_id, not-found, invalid id, and dev-server run (see P1.8 and P1.9).
+
+### P1.12 Why LangGraph
+
+| Need | How LangGraph addresses it |
+|---|---|
+| **Explicit, auditable control flow** | The agent is a graph of named nodes and edges, not a free-form loop. Reviewers can see exactly which paths exist (triage → KB answer / ask info / reproduce → Jira) |
+| **Typed shared state** | One state object flows through nodes. Each node returns a partial update, which is easy to test node by node |
+| **Human-in-the-loop** | Built-in interrupts and checkpointing pause a run for approval (customer replies, low-confidence Jira) and resume it later, which matches our autonomy policy |
+| **Durable execution** | Checkpointers (SQLite → Postgres) persist state between steps, a path to the "durable execution" requirement in §14 |
+| **Visual debugging** | Studio shows the graph, every node's input and output, and lets you re-run from a step |
+| **Model-agnostic** | Nodes are plain Python. Claude is called from nodes we control, alongside deterministic guardrails |
+
+Trade-off: it's an extra framework dependency and abstraction compared with a hand-written loop (the original design). We accept it for checkpointing, interrupts, and Studio, which we would otherwise build ourselves. See ADR-009.
+
+### P1.13 How this supports later phases
+
+| Future capability | Extension point |
+|---|---|
+| **RAG (KB + similar tickets)** | New `retrieve_context` node after `retrieve_incident`, backed by the retrieval module (§5). State gains `kb_results`, `similar_tickets` |
+| **LLM analysis** | `triage` node (small model) and conditional edges by ticket type. `analyze` / `draft_reply` nodes (strong model) |
+| **ERPNext integration** | `prepare_repro_data` / `reproduce_in_browser` nodes with an injected ERPNext client and browser worker, the same factory pattern as `ServiceNowClient` |
+| **Polling** | A poller lists changed incidents and calls `graph.invoke({"incident_id": ...})` per ticket. The graph stays unchanged |
+| **FastAPI webhooks** | A webhook endpoint enqueues the incident id. Workers invoke the same graph, or the LangGraph server API (`/runs`) serves it directly |
+| **Jira escalation** | `search_jira` → `create_jira_issue` nodes behind a policy check and an `interrupt()` for approval |
+| **Guardrails** | Policy checks run as nodes or wrappers before any write node. The kill switch is checked there |
+
+### P1.14 Decisions and issues log
+
+| # | Type | Item | Resolution |
+|---|---|---|---|
+| D1 | Decision | Orchestrate with **LangGraph** instead of a hand-written tool loop | ADR-009 |
+| D2 | Decision | Single `support_agent` package under `src/` (instead of top-level `agent`, `tools`, ...) | ADR-010. Avoids clashing with other installed packages |
+| D3 | Decision | Keep `requests` for ServiceNow (reuse the working connection) | `httpx` remains an option if we go async |
+| D4 | Decision | Inject the client through a factory and read settings at run time, not import time | Studio can load the graph without credentials, and tests use mocks |
+| D5 | Decision | Separate input and output schemas | Studio shows a clean one-field form, and internal fields stay private |
+| I1 | Issue | Studio input schema failed on Python 3.11: *"Please use `typing_extensions.TypedDict` instead of `typing.TypedDict` on Python < 3.12"* (caught by `test_graph_input_schema_is_incident_id_only`) | State uses `typing_extensions.TypedDict` |
+| I2 | Issue | `langgraph dev` crashed at startup: `ValueError: Unknown level: ''` | `.env` had an empty `LOG_LEVEL=` placeholder, which the dev server reads. Set `LOG_LEVEL=INFO` in `.env` and `.env.example` |
+| I3 | Issue (earlier) | ServiceNow API returned 401 for `admin` despite a valid password | New PDIs enforce the Basic Auth restriction. The agent uses a WSAO account (ADR-006, [SERVICENOW.md](SERVICENOW.md) §5) |

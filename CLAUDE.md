@@ -13,7 +13,7 @@ Context and working rules for AI-assisted sessions on this repository.
 - Systems: ServiceNow PDI (Table API), Jira Cloud Free (REST API), and **ERPNext** in Docker as the demo system (pinned to a pre-fix version, config in `demo_app/`).
 - Seed tickets: closed ERPNext GitHub issues (label `accounts`) rewritten as end-user reports (`data/seed/`).
 - Ticket types: how-to (KB answer with citation), missing info (ask the user), bug (reproduce → Jira → link), duplicate.
-- Claude API with tool use: a small model for triage, a stronger model for reasoning.
+- LangGraph workflow. Claude API inside nodes: a small model for triage, a stronger model for reasoning.
 - Tools: `get_ticket`, `search_kb`, `search_similar_tickets`, `search_jira`, `prepare_repro_data`, `reproduce_in_browser`, `add_work_note`, `draft_reply`, `update_state`, `create_jira_issue`, `link_jira`.
 - Evals: 20–30 golden tickets. Packaging: Docker Compose.
 - Out of scope for V1: webhooks, job queues, multi-tenant, real customer data.
@@ -32,10 +32,15 @@ Context and working rules for AI-assisted sessions on this repository.
 ## Folder structure
 
 ```
-src/agent/        orchestrator, model routing, prompts, trace writer
-src/tools/        typed tools + ServiceNow / Jira / CDP clients
-src/guardrails/   policy engine, injection defense, allow-list, idempotency, kill switch
-src/review_ui/    local human-approval UI
+main.py                         CLI entry point (python main.py --incident INC0010001)
+langgraph.json                  LangGraph dev server / Studio config
+src/support_agent/config.py     typed settings from env
+src/support_agent/cli.py        terminal interface
+src/support_agent/servicenow/   ServiceNow Table API client + models (read-only so far)
+src/support_agent/graph/        LangGraph state, nodes, workflow (orchestrator)
+src/support_agent/tools/        typed tools + Jira / ERPNext / CDP clients (planned)
+src/support_agent/guardrails/   policy engine, injection defense, allow-list, idempotency, kill switch
+src/support_agent/review_ui/    local human-approval UI
 demo_app/         ERPNext demo system: Docker Compose, version pin, fixtures
 scripts/          ServiceNow setup, seeding, connection test
 data/seed/        synthetic callers and incidents (committed); other data/ is gitignored
@@ -49,7 +54,10 @@ docs/             ARCHITECTURE.md, TASKS.md, DECISIONS.md, SERVICENOW.md
 
 - Python 3.11+, with type hints everywhere. `mypy` and `ruff` must pass.
 - Pydantic models for every tool input and output and for external API payloads.
-- httpx with explicit timeouts. Retries with backoff for 429 and 5xx.
+- Orchestration in LangGraph (`src/support_agent/graph/`). Nodes are plain functions, and external clients are injected through factories so tests can mock them.
+- HTTP with `requests` and explicit timeouts. Retries with backoff for 429 and 5xx (to add).
+- Use `typing_extensions.TypedDict` for graph state (required for schema generation on Python 3.11).
+- Record each phase's implementation, validation, decisions, and issues in the build log at the end of `docs/ARCHITECTURE.md`.
 - One tool per module in `src/tools/`. Tools don't call other tools.
 - Prompts live in files under `src/agent/prompts/`, not inline strings.
 - Config comes from environment variables via a typed settings object. No hardcoded URLs or IDs.

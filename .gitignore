@@ -48,3 +48,6 @@ data/*
 
 # Local, instance-specific notes
 *.local.md
+
+# LangGraph dev server local state (contains run data)
+.langgraph_api/

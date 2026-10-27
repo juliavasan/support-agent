@@ -15,18 +15,21 @@ Each task is sized for a single commit. Check a box when its "done when" conditi
 - [ ] **Remove admin API exception.** After all ServiceNow data setup is done, remove `snc_basic_auth_api_access` from `admin`. *Done when:* admin API call returns 401 and `support_agent` still returns 200.
 - [ ] **Anthropic API key.** Create a key with a spend limit. *Done when:* a one-line test call returns a response.
 - [ ] **Local `.env`.** Copy `.env.example` and fill in values. *Done when:* `.env` is populated and `git status` doesn't show it.
-- [ ] **Python tooling.** Set up a virtualenv / `uv`, ruff, mypy, pytest, and pre-commit. *Done when:* `ruff check`, `mypy`, and `pytest` all run (with zero tests) and pass.
-- [ ] **Config loader.** Typed settings from env with validation that fails fast on missing vars. *Done when:* a unit test covers missing and valid config.
-- [ ] **Package layout decision.** Confirm the import paths for `src/` modules in `pyproject.toml`. *Done when:* `python -c "import agent, tools, guardrails"` works in the venv.
+- [x] **Python tooling.** Set up a virtualenv / `uv`, ruff, mypy, pytest, and pre-commit. *Done when:* `ruff check`, `mypy`, and `pytest` all run (with zero tests) and pass.
+- [x] **Config loader.** Typed settings from env with validation that fails fast on missing vars. *Done when:* a unit test covers missing and valid config.
+- [x] **Package layout decision.** Single `support_agent` package (ADR-010). *Done when:* `python -c "import support_agent.graph.workflow"` works in the venv.
 
 ## Phase 1: Read the queue (no AI)
 
-- [ ] **ServiceNow client: auth and base request.** Use HTTPS, timeouts, and retries with backoff on 429/5xx. *Done when:* unit test with mocked HTTP passes.
-- [ ] **`get_ticket` tool.** Fetch an incident by number into a typed `Ticket` model. *Done when:* returns a parsed model for a seeded incident. Unit test uses a recorded fixture.
+- [~] **ServiceNow client: auth and base request.** Use HTTPS, timeouts, and retries with backoff on 429/5xx. *(Phase 1: auth, timeouts, typed errors done. Retries still to do.)* *Done when:* unit test with mocked HTTP passes.
+- [x] **`get_ticket` tool.** *(Implemented as `ServiceNowClient.get_incident` + `retrieve_incident` graph node, by number or sys_id.)* Fetch an incident by number into a typed `Ticket` model. *Done when:* returns a parsed model for a seeded incident. Unit test uses a recorded fixture.
 - [ ] **List queue.** Query incidents for the agent's assignment group, filtered by state and updated-since. *Done when:* CLI prints the open queue.
 - [ ] **Poll cursor and state store.** SQLite table for last-seen `sys_updated_on` / `sys_mod_count`. *Done when:* a re-run doesn't reprocess unchanged tickets.
 - [x] **Synthetic ticket seeder.** Script that creates 10+ synthetic incidents in the PDI from a seed file. *Done when:* `python3 scripts/seed_incidents.py` creates the tickets and is idempotent.
 - [ ] **Trace writer skeleton.** Per-ticket `trace.json` with run id and events. *Done when:* the poller writes a trace for each ticket it sees.
+- [x] **LangGraph skeleton.** `START → retrieve_incident → format_incident → END` with typed state. *Done when:* graph runs via CLI and Studio (see Phase 1 build log).
+- [x] **Single-incident CLI.** `python main.py --incident INC0010001`. *Done when:* prints the incident, with error handling.
+- [x] **LangSmith Studio.** `langgraph.json` + `langgraph dev`. Optional tracing. *Done when:* graph visible and runnable in Studio.
 - [ ] **CLI entrypoint.** `support-agent poll --once`. *Done when:* the command lists new tickets and writes traces.
 
 ## Phase 2: KB search

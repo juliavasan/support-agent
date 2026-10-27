@@ -1,0 +1,9 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "python_version": "3.11",
+  "dependencies": ["."],
+  "graphs": {
+    "incident_workflow": "./src/support_agent/graph/workflow.py:graph"
+  },
+  "env": ".env"
+}

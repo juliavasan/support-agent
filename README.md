@@ -50,7 +50,7 @@ Every step is recorded in a per-ticket trace: tool calls, inputs, results, and s
 | Layer | Responsibility |
 |---|---|
 | **Queue poller** | Pulls new or updated incidents from the ServiceNow Table API (webhooks later) |
-| **Agent loop** | Claude with tool use. A small model for triage, a stronger model for reasoning and drafting |
+| **Agent workflow** | LangGraph state machine. Claude inside nodes: a small model for triage, a stronger model for reasoning and drafting |
 | **Typed tools** | `get_ticket`, `search_kb`, `search_similar_tickets`, `reproduce_in_browser`, `add_work_note`, `draft_reply`, `update_state`, `create_jira_issue`, `link_jira` |
 | **Guardrails** | Autonomy policy, prompt-injection defenses, browser allow-list, idempotency, kill switch |
 | **Review UI** | Local page where a human approves, edits, or rejects pending actions |
@@ -90,13 +90,27 @@ ServiceNow and Jira have stable, permissioned, auditable REST APIs. Driving thei
 
 ## Quickstart
 
-> ⚙️ *One-command Docker Compose setup coming in Phase 7.*
+> Current state: **Phase 1** (read-only). The agent retrieves a ServiceNow incident through a LangGraph workflow. One-command Docker Compose setup comes in Phase 7.
+
+**Prerequisites:** Python 3.11+, a ServiceNow PDI configured as in [docs/SERVICENOW.md](docs/SERVICENOW.md).
 
 ```bash
-# placeholder
-cp .env.example .env   # fill in your ServiceNow PDI + Jira credentials
-docker compose up
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env            # fill in SERVICENOW_* values
+
+# Terminal
+python main.py --incident INC0010001
+
+# Visual debugging in LangSmith Studio
+langgraph dev                   # opens https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+
+# Tests (mocked ServiceNow, no network)
+pytest
+pytest -m live                  # optional: needs a running `langgraph dev`
 ```
+
+Details, validation results, and design notes: [Phase 1 build log](docs/ARCHITECTURE.md#phase-1-servicenow-integration-and-langgraph-setup).
 
 ## Roadmap
 

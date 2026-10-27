@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "support-agent"
 version = "0.0.1"
@@ -7,12 +11,17 @@ license = { text = "MIT" }
 authors = [{ name = "Julia Vasan" }]
 requires-python = ">=3.11"
 dependencies = [
+    "langgraph>=1.2,<2",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
     "requests>=2.29",
+    "typing-extensions>=4.12",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
+    "langgraph-cli[inmem]>=0.4",
+    "pytest>=8",
     "ruff",
     "mypy",
 ]
@@ -30,6 +39,11 @@ python_version = "3.11"
 strict = true
 mypy_path = "src"
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["live: hits the real ServiceNow instance or a running langgraph dev server (opt-in)"]
+addopts = "-m 'not live'"

@@ -129,3 +129,29 @@ Lightweight ADRs. Each entry records the context, the decision, and its conseque
 - No extra infrastructure, and the index is easy to inspect and test. BM25 is strong on ERP vocabulary (doctype names, exact error strings).
 - Syncing as the agent means ServiceNow ACLs and KB user criteria apply automatically.
 - Weaker on paraphrased queries. Embeddings (e.g. `sqlite-vec`) are a drop-in upgrade behind the same tool interface if retrieval evals call for it.
+
+## ADR-009: LangGraph for agent orchestration
+
+- **Date:** 2026-10-27
+- **Status:** Accepted. Replaces the hand-written tool-use loop in the original design.
+
+**Context.** The agent needs explicit branching by ticket type, typed state, pauses for human approval that can last hours, resumable runs, and a way to show its behavior visually to reviewers.
+
+**Decision.** Build the orchestrator as a **LangGraph** `StateGraph`. Nodes are plain Python functions with injected clients. LLM calls (Claude) happen inside nodes we control. Guardrails remain deterministic code outside the model. Local development uses `langgraph dev` + LangSmith Studio. LangSmith tracing is optional and off by default.
+
+**Consequences.**
+- Checkpointing and `interrupt()` give human-in-the-loop and durable execution without custom infrastructure.
+- Studio makes the workflow visible, which helps with debugging and demos.
+- It adds a framework dependency and its abstractions. The client and tool layers stay framework-free, so they're reusable outside LangGraph.
+- Optional LangSmith tracing sends run data to a third party. It stays off by default, with synthetic data only.
+
+## ADR-010: Single `support_agent` package (src layout)
+
+- **Date:** 2026-10-27
+- **Status:** Accepted
+
+**Context.** The initial skeleton had top-level packages `src/agent`, `src/tools`, `src/guardrails`, `src/review_ui`. Generic top-level names can clash with other installed distributions.
+
+**Decision.** Use one importable package, `src/support_agent/`, with subpackages `servicenow`, `graph`, `tools`, `guardrails`, `review_ui`, plus `config.py` and `cli.py`.
+
+**Consequences.** Unambiguous imports (`from support_agent.servicenow import ...`), standard `pip install -e .`, and the dev server installs the same package through `langgraph.json`.
