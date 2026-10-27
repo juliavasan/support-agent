@@ -31,9 +31,12 @@ Each task is sized for a single commit. Check a box when its "done when" conditi
 
 ## Phase 2: KB search
 
-- [ ] **Seed synthetic KB articles.** 10–15 articles for the demo portal (login, billing, export, etc.). *Done when:* the articles are published in the PDI KB.
-- [ ] **`search_kb` tool (API search).** Query `kb_knowledge` with text search and return top-k with ids and snippets. *Done when:* a known query returns the expected article.
-- [ ] **Local KB index (optional upgrade).** Embedding or BM25 index synced from ServiceNow for better recall. *Done when:* recall on a small query set beats API search.
+- [ ] **Rename KB to "ERPNext Support".** Update the setup script and docs. *Done when:* setup shows the renamed KB and the access check passes.
+- [ ] **Seed synthetic KB articles.** ERPNext how-to and known-issue articles (provided separately) loaded by a KB seeder as `seed_loader`. *Done when:* the articles are published and readable by `support_agent`.
+- [ ] **KB sync job.** Incremental sync of published KB articles (as `support_agent`) into SQLite: HTML → text, chunk by heading, metadata. *Done when:* re-sync fetches only changed articles, and retired ones are removed.
+- [ ] **FTS5 search index.** BM25 over chunks with metadata filters. *Done when:* a known query returns the expected article in the top 3.
+- [ ] **`search_kb` tool.** Index search + small-model rerank + threshold, returning cited snippets. *Done when:* how-to seed tickets retrieve the expected article, and an unrelated query returns no match.
+- [ ] **Incident sync.** Index resolved and open incidents for similarity search. *Done when:* the index contains the seed incidents.
 - [ ] **`search_similar_tickets` tool.** Find resolved or open incidents similar to a query. *Done when:* a seeded duplicate is returned for its original.
 - [ ] **Relevance threshold.** Results below the configured score are dropped. *Done when:* an unrelated query returns an empty result in tests.
 
@@ -61,16 +64,18 @@ Each task is sized for a single commit. Check a box when its "done when" conditi
 - [ ] **Missing-info flow end to end.** *Done when:* a vague ticket gets an approved clarifying question and state `On Hold`.
 - [ ] **How-to flow end to end.** *Done when:* a how-to ticket gets an approved, KB-cited reply.
 
-## Phase 5: Demo app + CDP reproduction
+## Phase 5: ERPNext demo system + CDP reproduction
 
-- [ ] **Demo customer portal scaffold.** A minimal web app (login, dashboard, form) with synthetic users. *Done when:* it runs locally on a fixed port.
-- [ ] **Seeded bug #1.** For example, the "Save" button does nothing on the profile page and logs a console error. *Done when:* the bug is visible manually and documented in `demo_app/BUGS.md`.
-- [ ] **Seeded bug #2.** For example, the export returns an empty file for date ranges over 30 days. *Done when:* the bug is visible and documented.
-- [ ] **Seeded bug #3 (optional).** For example, a layout overlap hides the submit button at narrow widths. *Done when:* the bug is visible and documented.
-- [ ] **CDP connection.** Launch Chrome with a dedicated `--user-data-dir` and connect over the DevTools websocket. *Done when:* the script opens the demo app and takes a screenshot.
+- [ ] **Pick the ERPNext version.** Check the fix commits of the seed bugs and choose the version that reproduces the most. Record it as an ADR. *Done when:* the version and the reproducible bug list are in `demo_app/BUGS.md`.
+- [ ] **ERPNext in Docker.** Compose file based on `frappe_docker` with the pinned version. *Done when:* ERPNext runs locally and you can log in.
+- [ ] **ERPNext accounts.** `repro_bot` (UI, Accounts User) and `erp_fixtures` (API key). No Administrator use by the agent. *Done when:* both work and their credentials are in `.env`.
+- [ ] **Fixtures.** Brightline Supplies company, currencies (INR/USD/KWD), suppliers, accounts, tax templates via REST. *Done when:* the fixture script is idempotent on a fresh site.
+- [ ] **Manual repro of 2 seed bugs.** *Done when:* the steps and screenshots are documented in `demo_app/BUGS.md`.
+- [ ] **`prepare_repro_data` tool.** Creates per-run, uniquely named test records via REST. *Done when:* a scenario's preconditions are created and visible in ERPNext.
+- [ ] **CDP connection.** Launch Chrome with a dedicated `--user-data-dir` and connect over the DevTools websocket. *Done when:* the script opens ERPNext, logs in as `repro_bot`, and takes a screenshot.
 - [ ] **Allow-list enforcement.** A request interceptor blocks non-allow-listed origins, and navigation targets are validated. *Done when:* a test shows an external URL is blocked and logged.
-- [ ] **Repro action primitives.** navigate, click, type, wait_for, screenshot, collect console and network errors. *Done when:* each primitive has a test against the demo app.
-- [ ] **`reproduce_in_browser` tool.** Takes structured steps and expected behavior, and returns reproduced status, observations, and evidence paths. *Done when:* it reproduces bug #1 with a screenshot in the trace.
+- [ ] **Repro action primitives.** navigate, click, type, wait_for, screenshot, read error dialogs, collect console and network errors (Frappe 417 messages). *Done when:* each primitive has a test against ERPNext.
+- [ ] **`reproduce_in_browser` tool.** Takes structured steps and expected behavior, and returns reproduced status, observations, and evidence paths. *Done when:* it reproduces a seed bug (e.g. INC0010006) with a screenshot and error text in the trace.
 - [ ] **Jira client + `create_jira_issue`.** Steps, expected vs. actual, environment, and an attached screenshot. *Done when:* an issue is created in `SUP` with the attachment.
 - [ ] **Jira dedupe.** Search for an existing issue (by label or ticket link) before creating one. *Done when:* a second run updates or comments on the existing issue instead of creating one.
 - [ ] **`link_jira` tool.** Writes the Jira key and URL to the incident (field or work note). *Done when:* the incident shows the link.
@@ -93,7 +98,7 @@ Each task is sized for a single commit. Check a box when its "done when" conditi
 ## Phase 7: Docker Compose, CI, README polish
 
 - [ ] **Agent Dockerfile.** Slim Python 3.11 image running as a non-root user. *Done when:* `docker build` succeeds and the CLI runs in the container.
-- [ ] **Demo app Dockerfile.** *Done when:* the container serves the portal.
+- [ ] **ERPNext in the main Compose stack.** *Done when:* `docker compose up` starts ERPNext with fixtures loaded.
 - [ ] **Browser container.** Headless Chrome exposing CDP on the internal network only. *Done when:* the agent container can connect to it and the host can't, other than through mapped debug ports.
 - [ ] **docker-compose.yml.** agent, review-ui, browser, and demo-app, with health checks. *Done when:* `docker compose up` brings up the full stack with one command.
 - [ ] **Offline demo mode.** Compose profile using mocked ServiceNow and Jira so reviewers can run without accounts. *Done when:* `docker compose --profile demo up` processes sample tickets end to end.

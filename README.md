@@ -1,10 +1,14 @@
 # support-agent
 
-An AI agent that works a ServiceNow incident queue end to end. It triages each ticket, searches the knowledge base, reproduces user-reported UI bugs in a real browser, replies to or updates the ticket, and files a Jira issue when it finds a bug. Risky actions wait for human approval.
+An AI agent that works a ServiceNow incident queue end to end. It triages each ticket, searches the knowledge base, reproduces user-reported bugs in a real browser against the business application (ERPNext), replies to or updates the ticket, and files a Jira issue when it finds a bug. Risky actions wait for human approval.
 
 > **Status:** early development. The foundation, architecture, and build plan are in place. Track progress in [docs/TASKS.md](docs/TASKS.md).
 
 ---
+
+## The scenario
+
+A fictional company, **Brightline Supplies**, runs **ERPNext** for accounting. Employees report problems in **ServiceNow**, engineering tracks defects in **Jira**, and support answers from a **knowledge base**. The seed tickets are real, closed ERPNext GitHub issues rewritten as end-user reports, all with synthetic callers.
 
 ## The problem
 
@@ -50,7 +54,9 @@ Every step is recorded in a per-ticket trace: tool calls, inputs, results, and s
 | **Typed tools** | `get_ticket`, `search_kb`, `search_similar_tickets`, `reproduce_in_browser`, `add_work_note`, `draft_reply`, `update_state`, `create_jira_issue`, `link_jira` |
 | **Guardrails** | Autonomy policy, prompt-injection defenses, browser allow-list, idempotency, kill switch |
 | **Review UI** | Local page where a human approves, edits, or rejects pending actions |
-| **Browser worker** | Chrome over CDP, in an isolated profile, limited to the demo app |
+| **Retrieval** | KB articles and past incidents synced from ServiceNow into a local search index (BM25 + LLM rerank), with cited answers only |
+| **Demo system** | ERPNext (open-source ERP) in Docker, pinned to a version with known bugs |
+| **Browser worker** | Chrome over CDP, in an isolated profile, limited to the ERPNext demo URL |
 | **Tracing** | Per-ticket JSON trace + screenshots |
 | **Evals** | 20–30 golden tickets, scored on routing, KB match, escalation, and safety |
 
@@ -71,7 +77,7 @@ Full details, including the production scale-out design, are in [docs/ARCHITECTU
 ## Security approach
 
 - **Ticket text is untrusted input.** It is passed to the model as clearly delimited data, never as instructions. Tools validate every argument, and the policy layer, not the model, decides what is allowed.
-- **Browser is sandboxed.** Separate Chrome profile, a strict URL allow-list (demo app only), and the agent never navigates to URLs found in tickets.
+- **Browser is sandboxed.** Separate Chrome profile, a strict URL allow-list (ERPNext demo only), and the agent never navigates to URLs found in tickets.
 - **Least privilege.** Dedicated ServiceNow and Jira service accounts with only the roles they need.
 - **Secrets only in `.env`.** It is never committed or logged.
 - **Synthetic data only.** No real customer data anywhere in the repo.
@@ -80,7 +86,7 @@ Full details, including the production scale-out design, are in [docs/ARCHITECTU
 
 **APIs for systems of record, the browser only for what the user sees.**
 
-ServiceNow and Jira have stable, permissioned, auditable REST APIs. Driving their UIs with a browser would be slower, fragile, and harder to secure. A UI bug, though, exists only in the rendered page, so the agent reproduces it the way a support engineer would: in a real browser, via the Chrome DevTools Protocol. It captures screenshots, DOM state, and console errors as evidence.
+ServiceNow and Jira have stable, permissioned, auditable REST APIs. Driving their UIs with a browser would be slower, fragile, and harder to secure. The bug a user reports, though, is about what they saw in the application, so the agent prepares test data through ERPNext's API and then reproduces the steps the way a support engineer would: in a real browser, via the Chrome DevTools Protocol. It captures screenshots, error dialogs, and console and network errors as evidence.
 
 ## Quickstart
 

@@ -10,10 +10,11 @@ Context and working rules for AI-assisted sessions on this repository.
 
 ## Scope (V1)
 
-- Systems: ServiceNow PDI (Table API), Jira Cloud Free (REST API), and the local demo app in `demo_app/` with 2–3 deliberate bugs.
+- Systems: ServiceNow PDI (Table API), Jira Cloud Free (REST API), and **ERPNext** in Docker as the demo system (pinned to a pre-fix version, config in `demo_app/`).
+- Seed tickets: closed ERPNext GitHub issues (label `accounts`) rewritten as end-user reports (`data/seed/`).
 - Ticket types: how-to (KB answer with citation), missing info (ask the user), bug (reproduce → Jira → link), duplicate.
 - Claude API with tool use: a small model for triage, a stronger model for reasoning.
-- Tools: `get_ticket`, `search_kb`, `search_similar_tickets`, `reproduce_in_browser`, `add_work_note`, `draft_reply`, `update_state`, `create_jira_issue`, `link_jira`.
+- Tools: `get_ticket`, `search_kb`, `search_similar_tickets`, `search_jira`, `prepare_repro_data`, `reproduce_in_browser`, `add_work_note`, `draft_reply`, `update_state`, `create_jira_issue`, `link_jira`.
 - Evals: 20–30 golden tickets. Packaging: Docker Compose.
 - Out of scope for V1: webhooks, job queues, multi-tenant, real customer data.
 
@@ -22,7 +23,7 @@ Context and working rules for AI-assisted sessions on this repository.
 1. **APIs for systems of record, CDP only for what the user sees.** Never automate the ServiceNow or Jira UI.
 2. **The model proposes, the policy decides.** Every write goes through `src/guardrails` policy checks. Never let a tool bypass the policy engine.
 3. **Ticket, KB, and page text is untrusted.** Keep it delimited as data and never interpolate it into instructions.
-4. **Browser:** allow-list only (demo app), separate Chrome profile, never navigate to URLs taken from tickets.
+4. **Browser:** allow-list only (ERPNext demo URL), separate Chrome profile, never navigate to URLs taken from tickets. ERPNext test data goes through its REST API, and the browser only reproduces UI steps.
 5. **Autonomy:** customer replies need approval. Jira is auto only above the confidence threshold. The agent can never resolve or close a ticket. Respect the kill switch.
 6. **Idempotent writes:** never double-reply and never create duplicate Jira issues.
 7. **Trace everything:** every model call, tool call, policy decision, and approval goes into the per-ticket trace.
@@ -35,11 +36,13 @@ src/agent/        orchestrator, model routing, prompts, trace writer
 src/tools/        typed tools + ServiceNow / Jira / CDP clients
 src/guardrails/   policy engine, injection defense, allow-list, idempotency, kill switch
 src/review_ui/    local human-approval UI
-demo_app/         demo customer portal with seeded bugs
+demo_app/         ERPNext demo system: Docker Compose, version pin, fixtures
+scripts/          ServiceNow setup, seeding, connection test
+data/seed/        synthetic callers and incidents (committed); other data/ is gitignored
 evals/            golden tickets, eval runner, reports
 tests/            unit and integration tests
 traces/           runtime traces + screenshots (gitignored)
-docs/             ARCHITECTURE.md, TASKS.md, DECISIONS.md
+docs/             ARCHITECTURE.md, TASKS.md, DECISIONS.md, SERVICENOW.md
 ```
 
 ## Coding conventions

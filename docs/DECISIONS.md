@@ -97,3 +97,35 @@ Lightweight ADRs. Each entry records the context, the decision, and its conseque
 - No standing security exception for the agent. Least privilege is verified by the setup script (incident ✅, own KB ✅, `sys_properties` denied ✅).
 - Basic Auth still means a long-lived password in `.env`. That's acceptable for a synthetic-data demo, and the OAuth migration is on the roadmap.
 - The whole configuration can be rebuilt with one command after a PDI reclaim.
+
+## ADR-007: ERPNext as the demo system, seeded from real closed issues
+
+- **Date:** 2026-10-27
+- **Status:** Accepted. Supersedes the custom "customer portal" demo app in earlier docs.
+
+**Context.** The agent needs a business application whose bugs it can reproduce in a browser. A small custom app with planted bugs is easy to build but unconvincing. Hiring audiences care how the agent handles a real enterprise application.
+
+**Decision.** Use **ERPNext** (open-source ERP, Frappe framework) in Docker as the demo system. Seed tickets are closed ERPNext GitHub issues (label `accounts`), rewritten as end-user reports from fictional callers. Pin ERPNext to a version that predates the fixes. Prepare test data through ERPNext's REST API and reproduce UI steps through CDP.
+
+**Consequences.**
+- Realistic tickets with real, verifiable ground truth: each upstream issue documents its cause and fix.
+- Heavier demo stack (ERPNext needs several containers), and the version pin must be chosen carefully. Bugs that don't reproduce on the pinned version become `not_reproducible_in_demo`, which is still a valid eval path.
+- Accounting bugs often need specific setups (currencies, tax templates), which is why the API fixture layer exists.
+
+## ADR-008: Retrieval with SQLite FTS5 + LLM rerank, synced as the agent identity
+
+- **Date:** 2026-10-27
+- **Status:** Accepted
+
+**Context.** The agent must answer how-to tickets from the KB with citations, find similar or duplicate tickets, and avoid duplicate Jira issues. ServiceNow's Table API text search is weak for ranking. A vector database adds a service and an embeddings vendor.
+
+**Decision.**
+- Sync published KB articles and incidents from ServiceNow **as `support_agent`** into a local **SQLite FTS5** index, incrementally by `sys_updated_on`.
+- Retrieve the top 20 by BM25, **rerank with the small model**, and apply a relevance threshold. Below it, "no match" means escalate rather than improvise.
+- Customer replies must cite a KB article from the retrieved set. Past incidents are hints and are never quoted to customers.
+- Jira dedupe uses live JQL search, not the index.
+
+**Consequences.**
+- No extra infrastructure, and the index is easy to inspect and test. BM25 is strong on ERP vocabulary (doctype names, exact error strings).
+- Syncing as the agent means ServiceNow ACLs and KB user criteria apply automatically.
+- Weaker on paraphrased queries. Embeddings (e.g. `sqlite-vec`) are a drop-in upgrade behind the same tool interface if retrieval evals call for it.
