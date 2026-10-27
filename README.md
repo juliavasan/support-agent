@@ -47,6 +47,12 @@ Every step is recorded in a per-ticket trace: tool calls, inputs, results, and s
 
 ## Architecture at a glance
 
+**Built so far (Phase 1):** a read-only ServiceNow integration running through a LangGraph workflow.
+
+![Phase 1 tech stack](docs/images/support_agent_phase1_tech_stack.png)
+
+**Target V1 design:**
+
 | Layer | Responsibility |
 |---|---|
 | **Queue poller** | Pulls new or updated incidents from the ServiceNow Table API (webhooks later) |
