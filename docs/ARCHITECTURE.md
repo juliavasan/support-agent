@@ -594,6 +594,8 @@ Studio URL: `https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`
 
 **Validated (2026-10-27):** dev server started, `GET /ok` → 200, graph `incident_workflow` registered (`POST /assistants/search`), and `POST /runs/wait` with `{"incident_id": "INC0010005"}` returned the real incident. That's the same API Studio uses. No blocking-I/O warnings were raised.
 
+**Validated in the Studio UI (2026-10-27):** the graph renders as connected nodes (`retrieve_incident → format_incident`). An incident id entered in the input form ran successfully (server log: *Created run → Starting background run → Background run succeeded*, ~0.5 s), and node outputs could be inspected.
+
 ### P1.10 Safety (read-only)
 
 | Requirement | How it's enforced |
