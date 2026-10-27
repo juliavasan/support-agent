@@ -1,0 +1,33 @@
+[project]
+name = "support-agent"
+version = "0.0.1"
+description = "AI agent that works a ServiceNow incident queue end to end, with KB search, CDP bug reproduction, Jira escalation, and human approval."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Julia Vasan" }]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

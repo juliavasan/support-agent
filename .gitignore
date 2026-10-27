@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Chrome / browser profiles
+chrome-profile/
+.chrome-profile/
+chrome_profile/
+*.chrome-profile/
+browser_data/
+
+# Runtime artifacts
+traces/*
+!traces/.gitkeep
+screenshots/
+*.screenshot.png
+*.db
+*.sqlite
+*.sqlite3
+evals/results/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
