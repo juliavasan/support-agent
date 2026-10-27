@@ -1,0 +1,12 @@
+{
+  "_comment": "Synthetic callers for seeded incidents. Fictional people at a fictional company. No roles, no password, no login.",
+  "company": "Brightline Supplies (fictional)",
+  "callers": [
+    {"user_name": "amira.haddad", "first_name": "Amira", "last_name": "Haddad", "email": "amira.haddad@example.com", "title": "Accounts Payable Clerk"},
+    {"user_name": "tom.becker", "first_name": "Tom", "last_name": "Becker", "email": "tom.becker@example.com", "title": "ERP System Administrator"},
+    {"user_name": "priya.nair", "first_name": "Priya", "last_name": "Nair", "email": "priya.nair@example.com", "title": "Senior Accountant"},
+    {"user_name": "daniel.okafor", "first_name": "Daniel", "last_name": "Okafor", "email": "daniel.okafor@example.com", "title": "Treasury Analyst"},
+    {"user_name": "laura.chen", "first_name": "Laura", "last_name": "Chen", "email": "laura.chen@example.com", "title": "Accounts Payable Lead"},
+    {"user_name": "marco.rossi", "first_name": "Marco", "last_name": "Rossi", "email": "marco.rossi@example.com", "title": "Finance Controller"}
+  ]
+}

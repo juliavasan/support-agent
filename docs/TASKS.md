@@ -12,6 +12,7 @@ Each task is sized for a single commit. Check a box when its "done when" conditi
 - [x] **ServiceNow assignment group.** Create an "AI Support Agent" group so the agent only works its own queue. *Done when:* the group exists and the service account can filter incidents by it.
 - [ ] **Jira Cloud Free.** Create a site and a project (e.g. `SUP`) with a Bug issue type. *Done when:* the project is visible in the browser.
 - [ ] **Jira API token.** Create a token for a dedicated account with access to the project only. *Done when:* `curl` reads `/rest/api/3/myself`.
+- [ ] **Remove admin API exception.** After all ServiceNow data setup is done, remove `snc_basic_auth_api_access` from `admin`. *Done when:* admin API call returns 401 and `support_agent` still returns 200.
 - [ ] **Anthropic API key.** Create a key with a spend limit. *Done when:* a one-line test call returns a response.
 - [ ] **Local `.env`.** Copy `.env.example` and fill in values. *Done when:* `.env` is populated and `git status` doesn't show it.
 - [ ] **Python tooling.** Set up a virtualenv / `uv`, ruff, mypy, pytest, and pre-commit. *Done when:* `ruff check`, `mypy`, and `pytest` all run (with zero tests) and pass.
@@ -24,7 +25,7 @@ Each task is sized for a single commit. Check a box when its "done when" conditi
 - [ ] **`get_ticket` tool.** Fetch an incident by number into a typed `Ticket` model. *Done when:* returns a parsed model for a seeded incident. Unit test uses a recorded fixture.
 - [ ] **List queue.** Query incidents for the agent's assignment group, filtered by state and updated-since. *Done when:* CLI prints the open queue.
 - [ ] **Poll cursor and state store.** SQLite table for last-seen `sys_updated_on` / `sys_mod_count`. *Done when:* a re-run doesn't reprocess unchanged tickets.
-- [ ] **Synthetic ticket seeder.** Script that creates 10+ synthetic incidents in the PDI from YAML. *Done when:* `python -m scripts.seed` creates the tickets and is idempotent.
+- [x] **Synthetic ticket seeder.** Script that creates 10+ synthetic incidents in the PDI from a seed file. *Done when:* `python3 scripts/seed_incidents.py` creates the tickets and is idempotent.
 - [ ] **Trace writer skeleton.** Per-ticket `trace.json` with run id and events. *Done when:* the poller writes a trace for each ticket it sees.
 - [ ] **CLI entrypoint.** `support-agent poll --once`. *Done when:* the command lists new tickets and writes traces.
 

@@ -43,7 +43,8 @@ evals/results/
 *.swp
 
 # Local API samples
-data/
+data/*
+!data/seed/
 
 # Local, instance-specific notes
 *.local.md

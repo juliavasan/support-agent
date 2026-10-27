@@ -25,6 +25,7 @@ Everything about the ServiceNow side of `support-agent`: instance, accounts, rol
 | **ServiceNow ID** (personal email) | developer.servicenow.com | You | Manage the PDI: wake, reset, upgrade | Your password manager |
 | **`admin`** | Instance UI + API | You, setup scripts only | One-time configuration (users, groups, KB). **Never used by the agent** | `.env.admin` → `SN_ADMIN_PW` |
 | **`support_agent`** | API only | The agent | Reads and works the incident queue | `.env` → `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` |
+| **`seed_loader`** | API only | Seeder scripts | Loads synthetic callers, incidents, KB. Keeps the agent from authoring its own tickets | `.env` → `SERVICENOW_SEED_USERNAME` / `SERVICENOW_SEED_PASSWORD` |
 | **Synthetic callers** | None | Seeded tickets | The "customers" who open incidents | No password. They don't log in |
 
 ### `support_agent` service account
@@ -39,15 +40,20 @@ Everything about the ServiceNow side of `support-agent`: instance, accounts, rol
 | Effective roles | `itil` (via group) | Read and write incidents, work notes, comments |
 | Admin access | none | Verified: `sys_properties` read is denied |
 
-### Synthetic callers *(to be seeded)*
+### Synthetic callers
 
-Caller records are plain `sys_user` rows: name, email, company, location. They have **no roles, no password, and no login**. They only appear as the incident's *Caller*. They'll be imported from the synthetic user set (Phase 1 seeder). Use obviously fake domains such as `@example.com`.
+Caller records are plain `sys_user` rows: name, email, title. They have **no roles, no password, and no login**. They only appear as the incident's *Caller*. Six fictional employees of "Brightline Supplies" are defined in `data/seed/callers.json`, all on `@example.com`.
+
+### Seeded incidents
+
+`data/seed/incidents.json` holds 10 incidents: closed ERPNext GitHub issues (label `accounts`) rewritten as end-user reports, plus an `expected_type` label for evals (bug / missing_info / how_to). Each has `correlation_id = erpnext-gh-<issue>`, which makes seeding idempotent and lets you filter them in the UI. The GitHub link is kept in the seed file for attribution and never sent to ServiceNow.
 
 ## 3. Groups and roles
 
 | Group | Members | Roles granted | Used as |
 |---|---|---|---|
 | **AI Support Agent** | `support_agent` | `itil` | The assignment group: the agent works only incidents assigned here |
+| **Seed Data Loaders** | `seed_loader` | `itil`, `user_admin` | Synthetic data loading only |
 
 Roles are granted to the **group**, not the user, so access is managed in one place and is easy to audit or revoke.
 
@@ -109,6 +115,14 @@ Idempotent. It creates whatever is missing and leaves existing records alone:
 
 Requires `admin` to have `snc_basic_auth_api_access` (§5) and `SN_ADMIN_PW` in `.env.admin`.
 
+### `scripts/seed_incidents.py`: load synthetic callers and incidents
+
+```bash
+python3 scripts/seed_incidents.py
+```
+
+Runs as `seed_loader`. It creates missing callers (matched by `user_name`) and incidents (matched by `correlation_id`), all assigned to AI Support Agent, then reads them back as `support_agent` and prints a table plus a UI link. Re-running creates nothing new.
+
 ### `scripts/test_connection.py`: read-only connectivity test
 
 ```bash
@@ -159,6 +173,6 @@ ACLs or user criteria are filtering the rows (the `X-Total-Count` header may sti
 1. Request a new PDI. Update `SERVICENOW_INSTANCE_URL` in `.env`, and clear `SERVICENOW_PASSWORD` so a new one is generated.
 2. Log in as `admin`, set a password, add `snc_basic_auth_api_access` to `admin`, and put the password in `.env.admin`.
 3. `python3 scripts/servicenow_setup.py` should show three PASS lines.
-4. Run the seeders (callers, KB articles, incidents), once they exist.
+4. `python3 scripts/seed_incidents.py` (and the KB seeder, once it exists).
 5. Remove `snc_basic_auth_api_access` from `admin`.
 6. Update `SERVICENOW.local.md`.

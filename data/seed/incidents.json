@@ -1,0 +1,115 @@
+{
+  "_comment": "Seed incidents for the ERPNext demo system. Each is a closed ERPNext GitHub issue (label: accounts) rewritten as an end-user report filed in ServiceNow. 'source' is for attribution only and is not sent to ServiceNow. 'expected_type' is the label used by evals.",
+  "incidents": [
+    {
+      "seed_id": "erpnext-gh-62312",
+      "source": "https://github.com/frappe/erpnext/issues/62312",
+      "expected_type": "bug",
+      "caller": "amira.haddad",
+      "category": "software",
+      "impact": 3,
+      "urgency": 3,
+      "short_description": "Some ERPNext screens stay in English after switching my language to Arabic",
+      "description": "Hi,\n\nI changed my ERPNext language to Arabic. Most of the screens are translated, but some labels are still in English.\n\nExample: in the Stock Ledger Invariant Check report, \"Item\" and \"Warehouse\" show in Arabic but \"Show Incorrect Entries\" is still in English. In Accounts Settings I also see \"Credit Manager\" and \"Books Closed Through\" in English.\n\nCan these be translated? Some of my colleagues don't read English well.\n\nThanks,\nAmira"
+    },
+    {
+      "seed_id": "erpnext-gh-61998",
+      "source": "https://github.com/frappe/erpnext/issues/61998",
+      "expected_type": "bug",
+      "caller": "tom.becker",
+      "category": "software",
+      "impact": 2,
+      "urgency": 2,
+      "short_description": "ERPNext upgrade to v16 fails during migrate with TypeError",
+      "description": "We are upgrading our test site from v15 to ERPNext v16.51.1. bench migrate stops in the patch migrate_old_item_wise_tax_detail_data_to_table with:\n\nTypeError: can't multiply sequence by non-int of type 'float'\n\nWe use Item Tax Templates where some tax accounts are marked \"Not Applicable\" (we have French 20% and 5.5% VAT items in the same invoices). Sites without those templates migrate fine.\n\nThis blocks our production upgrade window next week.\n\nTom Becker, ERP admin"
+    },
+    {
+      "seed_id": "erpnext-gh-61925",
+      "source": "https://github.com/frappe/erpnext/issues/61925",
+      "expected_type": "missing_info",
+      "caller": "daniel.okafor",
+      "category": "software",
+      "impact": 3,
+      "urgency": 2,
+      "short_description": "Error with cost center",
+      "description": "Getting an error \"expected str instance, NoneType found\" something about cost center. Please fix asap."
+    },
+    {
+      "seed_id": "erpnext-gh-61801",
+      "source": "https://github.com/frappe/erpnext/issues/61801",
+      "expected_type": "bug",
+      "caller": "priya.nair",
+      "category": "software",
+      "impact": 2,
+      "urgency": 2,
+      "short_description": "Cannot save submitted Sales Invoice: 'Not allowed to change Total Taxes and Charges after submission'",
+      "description": "When I open a submitted Sales Invoice and try to save a change to a field that is allowed after submit, I get:\n\nCannot Update After Submit\nNot allowed to change Total Taxes and Charges after submission from 164798.06 to 164798.04\n\nWe have \"Round Tax Amount Row-wise\" switched on in Accounts Settings. The invoice net total is 1,098,653.59 with 15% VAT. It looks like the screen recalculates the tax differently from what was saved, a couple of cents off.\n\nThis happens on several large invoices this month.\n\nPriya"
+    },
+    {
+      "seed_id": "erpnext-gh-61550",
+      "source": "https://github.com/frappe/erpnext/issues/61550",
+      "expected_type": "bug",
+      "caller": "daniel.okafor",
+      "category": "software",
+      "impact": 3,
+      "urgency": 3,
+      "short_description": "Payment Request stuck at 'Partially Paid' after we cancelled the payment",
+      "description": "We cancelled a payment, but the Payment Request now says \"Partially Paid\" even though nothing has been paid.\n\nWhat I did (our company currency is INR):\n1. Purchase Order to a supplier for USD 100, exchange rate 80. Submitted.\n2. Created an outward Payment Request from the PO and submitted it.\n3. Made a Payment Entry against the request for INR 8,000. The request showed \"Paid\".\n4. Cancelled the Payment Entry and reloaded the Payment Request.\n\nThe outstanding amount went back to INR 8,000, which is correct, but the status is \"Partially Paid\". I expected it to go back to \"Initiated\".\n\nDaniel Okafor, Treasury"
+    },
+    {
+      "seed_id": "erpnext-gh-61454",
+      "source": "https://github.com/frappe/erpnext/issues/61454",
+      "expected_type": "bug",
+      "caller": "laura.chen",
+      "category": "software",
+      "impact": 2,
+      "urgency": 3,
+      "short_description": "Can't submit USD Purchase Invoice with advance: 'Advance amount cannot be greater than KWD 3.07'",
+      "description": "Our Kuwait company (currency KWD, 3 decimals) can't submit a USD purchase invoice when an advance is allocated.\n\nSteps:\n1. Purchase Order in USD, 1 item at 10.00, conversion rate 0.3071 (= 3.071 KWD). Submitted.\n2. Payment Entry from a KWD bank account for 3.071, allocated to the PO. Submitted.\n3. Created the Purchase Invoice from the PO with the advance of 3.071 allocated.\n4. The first save works, but Submit fails with:\n   \"Advance amount cannot be greater than KWD 3.07\"\n\nThe advance is exactly the invoice total, so this should be allowed. With rate 0.3076 it works fine.\n\nLaura Chen, AP"
+    },
+    {
+      "seed_id": "erpnext-gh-59458",
+      "source": "https://github.com/frappe/erpnext/issues/59458",
+      "expected_type": "bug",
+      "caller": "laura.chen",
+      "category": "software",
+      "impact": 3,
+      "urgency": 3,
+      "short_description": "Invoice still shows 'Paid' after a Debit Note was issued against it",
+      "description": "We paid a Purchase Invoice in full (status \"Paid\"), then created a Debit Note (return) from that invoice and submitted it. We left \"Update Outstanding for Self\" checked.\n\nThe original invoice still shows \"Paid\". I expected \"Debit Note Issued\". It only changes if we post another payment or journal entry against the invoice later.\n\nThe amounts and ledger look right. It's just the status, but our AP reports filter by status, so it's confusing for the team.\n\nLaura"
+    },
+    {
+      "seed_id": "erpnext-gh-57545",
+      "source": "https://github.com/frappe/erpnext/issues/57545",
+      "expected_type": "bug",
+      "caller": "amira.haddad",
+      "category": "software",
+      "impact": 3,
+      "urgency": 3,
+      "short_description": "Payment Entry list doesn't show the supplier name for draft payments",
+      "description": "We create draft payment entries in bulk from the Accounts Payable report and then submit them from the Payment Entry list.\n\nIn the list, draft entries don't show the party (supplier) name, so I can't tell which payment belongs to which supplier without opening each one.\n\nCould the party name be shown for drafts too?\n\nAmira"
+    },
+    {
+      "seed_id": "erpnext-gh-57544",
+      "source": "https://github.com/frappe/erpnext/issues/57544",
+      "expected_type": "how_to",
+      "caller": "marco.rossi",
+      "category": "inquiry",
+      "impact": 3,
+      "urgency": 3,
+      "short_description": "What does 'Allow Stale Exchange Rate' in Accounts Settings do?",
+      "description": "Hello,\n\nIn Accounts Settings there is a checkbox \"Allow Stale Exchange Rate\". There is no help text next to it. What does it do, and should we enable it? We post multi-currency invoices daily and want to avoid using outdated rates.\n\nThanks,\nMarco Rossi, Finance Controller"
+    },
+    {
+      "seed_id": "erpnext-gh-56698",
+      "source": "https://github.com/frappe/erpnext/issues/56698",
+      "expected_type": "how_to",
+      "caller": "marco.rossi",
+      "category": "inquiry",
+      "impact": 3,
+      "urgency": 3,
+      "short_description": "How do I reverse an Exchange Rate Revaluation?",
+      "description": "After month-end I created an Exchange Rate Revaluation, but I can't find a button to reverse it on the revaluation document. Do I have to reverse it manually somewhere else? Can it be reversed automatically on a date?\n\nWe almost forgot to reverse last month's.\n\nMarco"
+    }
+  ]
+}

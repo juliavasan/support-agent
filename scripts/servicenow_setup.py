@@ -27,9 +27,26 @@ ADMIN_ENV_PATH = ROOT / ".env.admin"
 
 GROUP_NAME = "AI Support Agent"
 USER_NAME = "support_agent"
-# Roles are granted to the group, not the user, so access is managed in one place.
-# itil: read/write incidents and journal entries (work notes, comments).
-GROUP_ROLES = ["itil"]
+# Roles are granted to groups, not users, so access is managed in one place.
+AGENT_ACCOUNT: dict[str, object] = {
+    "user_name": USER_NAME,
+    "first_name": "Support",
+    "last_name": "Agent",
+    "group": GROUP_NAME,
+    "group_description": "Queue worked by the support-agent AI.",
+    # itil: read/write incidents and journal entries (work notes, comments).
+    "roles": ["itil"],
+}
+# Separate account for loading synthetic data, so seeded tickets are never authored by the agent.
+SEED_ACCOUNT: dict[str, object] = {
+    "user_name": "seed_loader",
+    "first_name": "Seed",
+    "last_name": "Loader",
+    "group": "Seed Data Loaders",
+    "group_description": "Loads synthetic demo data (callers, incidents, KB). Not used by the agent.",
+    # itil: create incidents. user_admin: create synthetic caller users.
+    "roles": ["itil", "user_admin"],
+}
 KB_TITLE = "Customer Portal Support"
 CRITERIA_NAME = "AI Support Agent - KB read"
 ACCESS_CHECK_ARTICLE = "support-agent KB access check"
@@ -98,6 +115,63 @@ def generate_password() -> str:
     return secrets.token_urlsafe(24) + "Aa1!"
 
 
+def ensure_service_account(
+    admin: ServiceNow, spec: dict[str, object], stored_password: str | None
+) -> tuple[str, str]:
+    """Ensure an API-only user, its group, and the group's roles. Returns (group_id, password)."""
+    group_name = str(spec["group"])
+    user_name = str(spec["user_name"])
+    group_id = admin.ensure(
+        "sys_user_group", f"name={group_name}",
+        {"name": group_name, "description": spec["group_description"], "active": "true"},
+        f"group '{group_name}'",
+    )
+    for role_name in spec["roles"]:  # type: ignore[attr-defined]
+        role = admin.find_one("sys_user_role", f"name={role_name}")
+        if role is None:
+            raise SystemExit(f"Role '{role_name}' not found on this instance")
+        admin.ensure(
+            "sys_group_has_role", f"group={group_id}^role={role['sys_id']}",
+            {"group": group_id, "role": role["sys_id"], "inherits": "true"},
+            f"role '{role_name}' on '{group_name}'",
+        )
+
+    # Reuse the stored password if there is one; otherwise generate a new one.
+    password = stored_password or generate_password()
+    user_fields: dict[str, object] = {
+        "user_name": user_name,
+        "first_name": spec["first_name"],
+        "last_name": spec["last_name"],
+        "active": "true",
+        # API-only account: cannot log in to the UI, and exempt from the Basic Auth restriction.
+        "web_service_access_only": "true",
+        "password_needs_reset": "false",
+        "user_password": password,
+    }
+    # sysparm_input_display_value makes ServiceNow hash user_password instead of storing it raw.
+    user = admin.find_one("sys_user", f"user_name={user_name}")
+    if user is None:
+        created = admin.request(
+            "POST", "sys_user", {"sysparm_input_display_value": "true"}, user_fields
+        )
+        assert isinstance(created, dict)
+        user_id = created["sys_id"]
+        print(f"  + user '{user_name}' (created)")
+    else:
+        user_id = user["sys_id"]
+        admin.request(
+            "PATCH", f"sys_user/{user_id}", {"sysparm_input_display_value": "true"}, user_fields
+        )
+        print(f"  = user '{user_name}' (exists, settings and password re-applied)")
+
+    admin.ensure(
+        "sys_user_grmember", f"group={group_id}^user={user_id}",
+        {"group": group_id, "user": user_id},
+        f"'{user_name}' member of '{group_name}'",
+    )
+    return group_id, password
+
+
 def main() -> int:
     env = read_env(ENV_PATH)
     base_url = env.get("SERVICENOW_INSTANCE_URL", "")
@@ -115,55 +189,11 @@ def main() -> int:
         print(f"Admin login failed (HTTP {err.code}). Check the password in .env.admin.")
         return 1
 
-    group_id = admin.ensure(
-        "sys_user_group", f"name={GROUP_NAME}",
-        {"name": GROUP_NAME, "description": "Queue worked by the support-agent AI.", "active": "true"},
-        f"group '{GROUP_NAME}'",
+    group_id, password = ensure_service_account(
+        admin, AGENT_ACCOUNT, env.get("SERVICENOW_PASSWORD")
     )
-
-    for role_name in GROUP_ROLES:
-        role = admin.find_one("sys_user_role", f"name={role_name}")
-        if role is None:
-            print(f"Role '{role_name}' not found on this instance")
-            return 1
-        admin.ensure(
-            "sys_group_has_role", f"group={group_id}^role={role['sys_id']}",
-            {"group": group_id, "role": role["sys_id"], "inherits": "true"},
-            f"role '{role_name}' on group",
-        )
-
-    # Reuse the stored password if the user already exists; otherwise generate a new one.
-    password = env.get("SERVICENOW_PASSWORD") or generate_password()
-    user = admin.find_one("sys_user", f"user_name={USER_NAME}")
-    user_fields: dict[str, object] = {
-        "user_name": USER_NAME,
-        "first_name": "Support",
-        "last_name": "Agent",
-        "active": "true",
-        # API-only account: cannot log in to the UI.
-        "web_service_access_only": "true",
-        "password_needs_reset": "false",
-        "user_password": password,
-    }
-    # sysparm_input_display_value makes ServiceNow hash user_password instead of storing it raw.
-    if user is None:
-        created = admin.request(
-            "POST", "sys_user", {"sysparm_input_display_value": "true"}, user_fields
-        )
-        assert isinstance(created, dict)
-        user_id = created["sys_id"]
-        print(f"  + user '{USER_NAME}' (created)")
-    else:
-        user_id = user["sys_id"]
-        admin.request(
-            "PATCH", f"sys_user/{user_id}", {"sysparm_input_display_value": "true"}, user_fields
-        )
-        print(f"  = user '{USER_NAME}' (exists, settings and password re-applied)")
-
-    admin.ensure(
-        "sys_user_grmember", f"group={group_id}^user={user_id}",
-        {"group": group_id, "user": user_id},
-        f"'{USER_NAME}' member of '{GROUP_NAME}'",
+    _, seed_password = ensure_service_account(
+        admin, SEED_ACCOUNT, env.get("SERVICENOW_SEED_PASSWORD")
     )
 
     # A dedicated knowledge base readable only by the agent's group, instead of a broad
@@ -207,6 +237,8 @@ def main() -> int:
         "SERVICENOW_PASSWORD": password,
         "SERVICENOW_ASSIGNMENT_GROUP": GROUP_NAME,
         "SERVICENOW_KNOWLEDGE_BASE": KB_TITLE,
+        "SERVICENOW_SEED_USERNAME": str(SEED_ACCOUNT["user_name"]),
+        "SERVICENOW_SEED_PASSWORD": seed_password,
     })
     print("  .env updated with service account credentials (not printed)")
 
