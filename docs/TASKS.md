@@ -7,9 +7,9 @@ Each task is sized for a single commit. Check a box when its "done when" conditi
 ## Phase 0: Setup
 
 - [x] **Repository foundation** (docs, folder skeleton, license, `.gitignore`, `.env.example`, `pyproject.toml`). *Done when:* initial commit exists on `main`.
-- [ ] **ServiceNow PDI.** Request a Personal Developer Instance and note the instance URL. *Done when:* you can log in to the instance.
-- [ ] **ServiceNow service account.** Create a `support_agent` user with least-privilege roles (incident read/write, KB read, no admin). *Done when:* `curl` with basic auth reads `/api/now/table/incident?sysparm_limit=1`.
-- [ ] **ServiceNow assignment group.** Create an "AI Support Agent" group so the agent only works its own queue. *Done when:* the group exists and the service account can filter incidents by it.
+- [x] **ServiceNow PDI.** Request a Personal Developer Instance and note the instance URL. *Done when:* you can log in to the instance.
+- [x] **ServiceNow service account.** Create a `support_agent` user with least-privilege roles (incident read/write, KB read, no admin). *Done when:* `curl` with basic auth reads `/api/now/table/incident?sysparm_limit=1`.
+- [x] **ServiceNow assignment group.** Create an "AI Support Agent" group so the agent only works its own queue. *Done when:* the group exists and the service account can filter incidents by it.
 - [ ] **Jira Cloud Free.** Create a site and a project (e.g. `SUP`) with a Bug issue type. *Done when:* the project is visible in the browser.
 - [ ] **Jira API token.** Create a token for a dedicated account with access to the project only. *Done when:* `curl` reads `/rest/api/3/myself`.
 - [ ] **Anthropic API key.** Create a key with a spend limit. *Done when:* a one-line test call returns a response.

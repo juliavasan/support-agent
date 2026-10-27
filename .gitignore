@@ -41,3 +41,9 @@ evals/results/
 .idea/
 .vscode/
 *.swp
+
+# Local API samples
+data/
+
+# Local, instance-specific notes
+*.local.md

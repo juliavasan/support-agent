@@ -102,6 +102,7 @@ docker compose up
 - [Architecture](docs/ARCHITECTURE.md)
 - [Build plan](docs/TASKS.md)
 - [Decision log](docs/DECISIONS.md)
+- [ServiceNow setup & reference](docs/SERVICENOW.md)
 
 ## License
 

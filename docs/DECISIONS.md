@@ -79,3 +79,21 @@ Lightweight ADRs. Each entry records the context, the decision, and its conseque
 - One-command setup, with reproducible environments.
 - The browser runs in its own container, which reinforces isolation.
 - Compose isn't a production orchestrator. The migration path is documented in `ARCHITECTURE.md` §9.
+
+## ADR-006: ServiceNow access via a WSAO service account, OAuth later
+
+- **Date:** 2026-10-27
+- **Status:** Accepted
+
+**Context.** New ServiceNow PDIs enforce the Basic authentication restriction. API calls with username and password return `401` unless the account is Web Services Access Only (WSAO), holds the `snc_basic_auth_api_access` exception role, or uses MFA. The agent also needs KB read access, which ServiceNow controls per knowledge base through user criteria rather than roles.
+
+**Decision.**
+- The agent uses a dedicated `support_agent` account with **WSAO** enabled: API only, no UI login. It gets its access only through the **AI Support Agent** group (`itil`).
+- KB access is scoped to one dedicated knowledge base, **Customer Portal Support**, through user criteria for that group. The agent cannot read the instance's other KBs.
+- `admin` gets `snc_basic_auth_api_access` only temporarily, to run the idempotent setup script. The agent never uses `admin`.
+- Production target: **OAuth 2.0 client credentials** (short-lived tokens, no stored password).
+
+**Consequences.**
+- No standing security exception for the agent. Least privilege is verified by the setup script (incident ✅, own KB ✅, `sys_properties` denied ✅).
+- Basic Auth still means a long-lived password in `.env`. That's acceptable for a synthetic-data demo, and the OAuth migration is on the roadmap.
+- The whole configuration can be rebuilt with one command after a PDI reclaim.
