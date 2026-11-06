@@ -17,6 +17,7 @@ Context and working rules for AI-assisted sessions on this repository.
 - Tools: `get_ticket`, `search_kb`, `search_similar_tickets`, `search_jira`, `prepare_repro_data`, `reproduce_in_browser`, `add_work_note`, `draft_reply`, `update_state`, `create_jira_issue`, `link_jira`.
 - Evals: 20–30 golden tickets. Packaging: Docker Compose.
 - Out of scope for V1: webhooks, job queues, multi-tenant, real customer data.
+- **Current write surface (Phase 2 Step 1):** internal `work_notes` only, dry run by default, write mode limited to `WRITE_TEST_INCIDENTS`. Priority is recommended from the impact × urgency matrix, adjusted for premium customers by a deterministic rule (ADR-012), and never written. Don't widen this without a new ADR.
 
 ## Principles
 
@@ -36,14 +37,19 @@ main.py                         CLI entry point (python main.py --incident INC00
 langgraph.json                  LangGraph dev server / Studio config
 src/support_agent/config.py     typed settings from env
 src/support_agent/cli.py        terminal interface
-src/support_agent/servicenow/   ServiceNow Table API client + models (read-only so far)
+src/support_agent/servicenow/   ServiceNow Table API client + models (reads; writes work notes only)
+src/support_agent/llm.py        structured-output LLM calls: Anthropic API or Claude CLI backend
+src/support_agent/analysis/     LLM triage: structured output, priority matrix, customer tiers, work-note format
+src/support_agent/retrieval/    RAG: ingestion, incident sync, Postgres + pgvector hybrid index (SQLite FTS5 offline), Voyage embeddings, rerank
+src/support_agent/prompts/      versioned prompt files (package data)
 src/support_agent/graph/        LangGraph state, nodes, workflow (orchestrator)
 src/support_agent/tools/        typed tools + Jira / ERPNext / CDP clients (planned)
-src/support_agent/guardrails/   policy engine, injection defense, allow-list, idempotency, kill switch
+src/support_agent/guardrails/   write policy (kill switch, test-incident allow-list); later the full policy engine
 src/support_agent/review_ui/    local human-approval UI
 demo_app/         ERPNext demo system: Docker Compose, version pin, fixtures
-scripts/          ServiceNow setup, seeding, connection test
-data/seed/        synthetic callers and incidents (committed); other data/ is gitignored
+docker-compose.yml  local Postgres + pgvector for the retrieval index
+scripts/          ServiceNow setup, seeding, knowledge ingestion, index sync, connection test
+data/seed/        synthetic callers, incidents, companies, knowledge source list (committed); other data/ is gitignored
 evals/            golden tickets, eval runner, reports
 tests/            unit and integration tests
 traces/           runtime traces + screenshots (gitignored)
@@ -59,7 +65,7 @@ docs/             ARCHITECTURE.md, TASKS.md, DECISIONS.md, SERVICENOW.md
 - Use `typing_extensions.TypedDict` for graph state (required for schema generation on Python 3.11).
 - Record each phase's implementation, validation, decisions, and issues in the build log at the end of `docs/ARCHITECTURE.md`.
 - One tool per module in `src/tools/`. Tools don't call other tools.
-- Prompts live in files under `src/agent/prompts/`, not inline strings.
+- Prompts live in files under `src/support_agent/prompts/`, not inline strings.
 - Config comes from environment variables via a typed settings object. No hardcoded URLs or IDs.
 - Tests: pytest. Mock external HTTP and never hit real services in unit tests.
 - Keep functions small and names explicit. Comment the *why*, not the *what*.

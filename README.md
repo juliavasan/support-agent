@@ -2,13 +2,13 @@
 
 An AI agent that works a ServiceNow incident queue end to end. It triages each ticket, searches the knowledge base, reproduces user-reported bugs in a real browser against the business application (ERPNext), replies to or updates the ticket, and files a Jira issue when it finds a bug. Risky actions wait for human approval.
 
-> **Status:** early development. The foundation, architecture, and build plan are in place. Track progress in [docs/TASKS.md](docs/TASKS.md).
+> **Status:** early development. Done: read-only ServiceNow + LangGraph (Phase 1), LLM triage that writes a preliminary assessment to the incident's internal work notes (Phase 2 Step 1), and retrieval over ERPNext docs, known bugs, and past tickets with hybrid keyword + vector search (Phase 2 Step 2). Track progress in [docs/TASKS.md](docs/TASKS.md).
 
 ---
 
 ## The scenario
 
-A fictional company, **Brightline Supplies**, runs **ERPNext** for accounting. Employees report problems in **ServiceNow**, engineering tracks defects in **Jira**, and support answers from a **knowledge base**. The seed tickets are real, closed ERPNext GitHub issues rewritten as end-user reports, all with synthetic callers.
+Fictional customer companies (**Brightline Supplies**, **Cobalt Ridge Manufacturing**, **Harborview Foods**) run **ERPNext** for accounting. Their users report problems in **ServiceNow**, engineering tracks defects in **Jira**, and support answers from the **ERPNext documentation** and the list of **known upstream bugs**. The seed tickets are real, closed ERPNext GitHub issues rewritten as end-user reports, all with synthetic callers.
 
 ## The problem
 
@@ -47,7 +47,19 @@ Every step is recorded in a per-ticket trace: tool calls, inputs, results, and s
 
 ## Architecture at a glance
 
-**Built so far (Phase 1):** a read-only ServiceNow integration running through a LangGraph workflow.
+**Built so far:**
+
+- **Phase 1:** a read-only ServiceNow integration running through a LangGraph workflow.
+- **Phase 2:** retrieval, an LLM triage node (Claude, structured output), a deterministic customer rule, and a guarded write node:
+
+  ```
+  START → retrieve_incident → format_incident → retrieve_context → analyze_incident
+        → apply_customer_policy → write_work_note → END
+  ```
+
+  **Retrieval (RAG):** ERPNext docs pages and open ERPNext bugs are ingested from docs.frappe.io and GitHub, and past incidents are synced from ServiceNow. Each chunk is indexed twice in **Postgres**: full text for exact ERP terms and error strings, and a **pgvector** embedding (Voyage AI) for symptoms described in other words. The two rankings are merged with Reciprocal Rank Fusion, a small Claude model reranks the candidates, and anything below the relevance threshold is dropped. The model may cite only what was retrieved, and the note shows each hit's link, score, and which search found it.
+
+  The model estimates impact and urgency, suggests a category, and lists hypotheses, first troubleshooting steps, and missing information. Priority (P1–P5) comes from a configurable impact × urgency matrix, never from the model. A deterministic rule then raises it for **premium customers** (one level, never below P3), based on the incident's company in ServiceNow, never on what the ticket text claims. The result is written as an internal work note titled **AI Triage Assessment (Preliminary)**: dry run by default, and writes only to designated test incidents, at most once per incident, verified in the journal afterwards.
 
 ![Phase 1 tech stack](docs/images/support_agent_phase1_tech_stack.png)
 
@@ -60,7 +72,7 @@ Every step is recorded in a per-ticket trace: tool calls, inputs, results, and s
 | **Typed tools** | `get_ticket`, `search_kb`, `search_similar_tickets`, `reproduce_in_browser`, `add_work_note`, `draft_reply`, `update_state`, `create_jira_issue`, `link_jira` |
 | **Guardrails** | Autonomy policy, prompt-injection defenses, browser allow-list, idempotency, kill switch |
 | **Review UI** | Local page where a human approves, edits, or rejects pending actions |
-| **Retrieval** | KB articles and past incidents synced from ServiceNow into a local search index (BM25 + LLM rerank), with cited answers only |
+| **Retrieval** | ERPNext docs, known bugs, and past incidents in Postgres + pgvector: hybrid keyword + vector search, RRF, LLM rerank, cited answers only |
 | **Demo system** | ERPNext (open-source ERP) in Docker, pinned to a version with known bugs |
 | **Browser worker** | Chrome over CDP, in an isolated profile, limited to the ERPNext demo URL |
 | **Tracing** | Per-ticket JSON trace + screenshots |
@@ -74,7 +86,7 @@ Full details, including the production scale-out design, are in [docs/ARCHITECTU
 |---|---|
 | Classify ticket, search KB / similar tickets | ✅ Automatic |
 | Reproduce in browser (allow-listed app only) | ✅ Automatic |
-| Add internal work note | ✅ Automatic |
+| Add internal work note | ✅ Automatic (during development: explicit write mode on designated test incidents only) |
 | Reply to customer | 🧑 Human approval |
 | Create Jira issue | ⚖️ Automatic above confidence threshold, otherwise approval |
 | Close / resolve ticket | 🔒 Human only (agent cannot) |
@@ -96,27 +108,37 @@ ServiceNow and Jira have stable, permissioned, auditable REST APIs. Driving thei
 
 ## Quickstart
 
-> Current state: **Phase 1** (read-only). The agent retrieves a ServiceNow incident through a LangGraph workflow. One-command Docker Compose setup comes in Phase 7.
+> Current state: **Phase 2.** The agent retrieves a ServiceNow incident, finds related docs, known bugs, and past tickets, analyzes it with Claude, and proposes (or writes) an internal triage work note. One-command Docker Compose setup for the whole stack comes in Phase 7.
 
-**Prerequisites:** Python 3.11+, a ServiceNow PDI configured as in [docs/SERVICENOW.md](docs/SERVICENOW.md).
+**Prerequisites:** Python 3.11+, Docker, a ServiceNow PDI configured as in [docs/SERVICENOW.md](docs/SERVICENOW.md), a Voyage AI API key, and an Anthropic API key (or, for local development, the Claude CLI signed in to a Claude subscription with `LLM_BACKEND=claude_cli`).
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env            # fill in SERVICENOW_* values
+cp .env.example .env            # fill in SERVICENOW_*, RETRIEVAL_DB_PASSWORD, RETRIEVAL_DATABASE_URL
+python3 scripts/set_secret.py ANTHROPIC_API_KEY   # hidden prompt; same for VOYAGE_API_KEY
 
-# Terminal
+# Retrieval index: Postgres + pgvector, then the knowledge and the incidents
+docker compose up -d
+python3 scripts/ingest_kb.py    # ERPNext docs + open bugs → embeddings
+python3 scripts/build_index.py  # incidents (also synced before each run)
+
+# Terminal: dry run (default). Shows the analysis and the proposed work note; writes nothing.
 python main.py --incident INC0010001
+
+# Write mode: appends the work note. Only for incidents listed in WRITE_TEST_INCIDENTS.
+python main.py --incident INC0010001 --write
 
 # Visual debugging in LangSmith Studio
 langgraph dev                   # opens https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
 
-# Tests (mocked ServiceNow, no network)
+# Tests (mocked ServiceNow and LLM, no network)
 pytest
 pytest -m live                  # optional: needs a running `langgraph dev`
+pytest -m postgres              # optional: needs `docker compose up -d`
 ```
 
-Details, validation results, and design notes: [Phase 1 build log](docs/ARCHITECTURE.md#phase-1-servicenow-integration-and-langgraph-setup).
+Details, validation results, and design notes: [Phase 1](docs/ARCHITECTURE.md#phase-1-servicenow-integration-and-langgraph-setup), [Phase 2 Step 1](docs/ARCHITECTURE.md#phase-2-step-1-llm-triage-and-internal-work-note), and [Phase 2 Step 2](docs/ARCHITECTURE.md#phase-2-step-2-retrieval-rag) build logs.
 
 ## Roadmap
 

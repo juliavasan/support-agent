@@ -13,7 +13,7 @@ Each task is sized for a single commit. Check a box when its "done when" conditi
 - [ ] **Jira Cloud Free.** Create a site and a project (e.g. `SUP`) with a Bug issue type. *Done when:* the project is visible in the browser.
 - [ ] **Jira API token.** Create a token for a dedicated account with access to the project only. *Done when:* `curl` reads `/rest/api/3/myself`.
 - [ ] **Remove admin API exception.** After all ServiceNow data setup is done, remove `snc_basic_auth_api_access` from `admin`. *Done when:* admin API call returns 401 and `support_agent` still returns 200.
-- [ ] **Anthropic API key.** Create a key with a spend limit. *Done when:* a one-line test call returns a response.
+- [x] **Anthropic API key.** Create a key with a spend limit. *Done when:* a one-line test call returns a response. *(Rotate it: the first key was shared in a chat.)*
 - [ ] **Local `.env`.** Copy `.env.example` and fill in values. *Done when:* `.env` is populated and `git status` doesn't show it.
 - [x] **Python tooling.** Set up a virtualenv / `uv`, ruff, mypy, pytest, and pre-commit. *Done when:* `ruff check`, `mypy`, and `pytest` all run (with zero tests) and pass.
 - [x] **Config loader.** Typed settings from env with validation that fails fast on missing vars. *Done when:* a unit test covers missing and valid config.
@@ -32,33 +32,63 @@ Each task is sized for a single commit. Check a box when its "done when" conditi
 - [x] **LangSmith Studio.** `langgraph.json` + `langgraph dev`. Optional tracing. *Done when:* graph visible and runnable in Studio.
 - [ ] **CLI entrypoint.** `support-agent poll --once`. *Done when:* the command lists new tickets and writes traces.
 
-## Phase 2: KB search
+## Phase 2: Triage + KB search
 
-- [ ] **Rename KB to "ERPNext Support".** Update the setup script and docs. *Done when:* setup shows the renamed KB and the access check passes.
-- [ ] **Seed synthetic KB articles.** ERPNext how-to and known-issue articles (provided separately) loaded by a KB seeder as `seed_loader`. *Done when:* the articles are published and readable by `support_agent`.
-- [ ] **KB sync job.** Incremental sync of published KB articles (as `support_agent`) into SQLite: HTML → text, chunk by heading, metadata. *Done when:* re-sync fetches only changed articles, and retired ones are removed.
-- [ ] **FTS5 search index.** BM25 over chunks with metadata filters. *Done when:* a known query returns the expected article in the top 3.
-- [ ] **`search_kb` tool.** Index search + small-model rerank + threshold, returning cited snippets. *Done when:* how-to seed tickets retrieve the expected article, and an unrelated query returns no match.
-- [ ] **Incident sync.** Index resolved and open incidents for similarity search. *Done when:* the index contains the seed incidents.
-- [ ] **`search_similar_tickets` tool.** Find resolved or open incidents similar to a query. *Done when:* a seeded duplicate is returned for its original.
-- [ ] **Relevance threshold.** Results below the configured score are dropped. *Done when:* an unrelated query returns an empty result in tests.
+### Step 1: LLM triage → internal work note
+
+See the [Phase 2 Step 1 build log](ARCHITECTURE.md#phase-2-step-1-llm-triage-and-internal-work-note) and ADR-011.
+
+- [x] **Structured triage output.** Pydantic `TriageAnalysis` via `messages.parse`: summary, impact, urgency, category, hypotheses, troubleshooting steps, missing info. *Done when:* invalid output is rejected in tests.
+- [x] **Priority matrix.** Configurable impact × urgency → P1–P5, validated on load. *Done when:* all 9 combinations and invalid files are tested.
+- [x] **Triage prompt file.** `src/support_agent/prompts/triage_system.md`, with ticket text delimited and escaped as untrusted data. *Done when:* a wrapper-escape test passes.
+- [x] **`analyze_incident` node.** LLM failures (API, refusal, truncation, schema) recorded in state, never raised. *Done when:* graph tests cover each failure.
+- [x] **Work-note format.** "AI Triage Assessment (Preliminary)", hypotheses labeled, run marker, 4,000-character cap. *Done when:* format tests pass.
+- [x] **`add_work_note` + `list_work_notes` client methods.** Only `work_notes` can be written. *Done when:* a test pins the PATCH body and the public API.
+- [x] **`write_work_note` node.** Dry run default, write policy (kill switch, `WRITE_TEST_INCIDENTS`), duplicate check, journal read-back, protected-field comparison. *Done when:* graph tests cover every status.
+- [x] **CLI `--write` and Studio `mode` input.** *Done when:* CLI tests pass and Studio shows the new input field.
+- [x] **Live dry run with the real LLM.** *Done when:* `python main.py --incident INC0010001` prints a real assessment and writes nothing. *(Opus 5.5 and Haiku 5.5, see build log P2.9.)*
+- [x] **Live write on one test incident.** Write, rerun (duplicate skipped), and try a non-designated incident (blocked). *Done when:* the steps in build log P2.10 pass and are recorded. *(2026-11-05, after fixing the work-note read-back, I10.)*
+
+### Step 1b: Premium-customer priority rule
+
+See [build log P2.12](ARCHITECTURE.md#p212-premium-customer-priority-rule) and ADR-012.
+
+- [x] **Customer tier config.** `analysis/customer_tiers.json` (premium: +1 level, never below P3), validated on load, `CUSTOMER_TIERS_PATH` override. *Done when:* the rule and invalid files are tested.
+- [x] **`apply_customer_policy` node** between analyze and write. Customer from the incident's Company, else the caller's company. Fails closed on a bad config. *Done when:* graph tests cover premium, standard, a premium claim in ticket text, and a broken config.
+- [x] **Work note shows the adjustment.** *Done when:* the note reads "matrix gives P5; raised for premium customer …".
+- [x] **Seed customer companies.** Three fictional companies, callers linked to them. *Done when:* the read-back shows each seeded incident's company.
+- [x] **Live dry run on a premium incident.** *Done when:* INC0010002 shows the adjusted priority and writes nothing.
+
+### Step 2: Retrieval (RAG)
+
+See the [Phase 2 Step 2 build log](ARCHITECTURE.md#phase-2-step-2-retrieval-rag) and ADR-013 / ADR-014. The ServiceNow-KB plan (rename the KB, seed articles, KB sync) was dropped: knowledge is ingested from its sources instead.
+
+- [x] **Hybrid index.** Postgres + pgvector in Docker: weighted full text + 1,024-d vectors, RRF. *Done when:* `pytest -m postgres` passes.
+- [x] **Embeddings.** Voyage `voyage-4` over REST, token-sized batches, 429 handling, model pinned in the index. *Done when:* tests pass and a live ingest completes on the free tier.
+- [x] **Knowledge ingestion.** Docs pages and open ERPNext bugs, cached, incremental, closed bugs removed. *Done when:* `scripts/ingest_kb.py` indexes 32 pages and 40 bugs, and a re-run embeds nothing.
+- [x] **Incident sync.** Incremental, as `support_agent`, excluding the incident being triaged. *Done when:* the index contains the seed incidents and a re-sync fetches none.
+- [x] **Rerank + threshold.** Small model, opaque ids, 0–10, threshold 7, top 3 per kind. *Done when:* an unrelated query returns no match in tests.
+- [x] **`retrieve_context` node.** Degrades on failure; citations validated against the retrieved set; "Related knowledge" in the note. *Done when:* a live dry run cites retrieved docs.
+- [x] **LLM backend switch.** Anthropic API or Claude CLI (no tools, empty working directory). *Done when:* a live dry run completes on the CLI backend.
+- [ ] **Retrieval eval.** Label the expected docs / known issue for each seed ticket; report hit@3 for keyword, vector, and hybrid. *Done when:* the numbers are in the build log and ADR-013's last consequence is resolved.
+- [ ] **`search_kb` / `search_similar_tickets` tools.** Wrap the retrieval service for the Phase 3 agent loop. *Done when:* the tools return cited snippets with the same threshold.
 
 ## Phase 3: Agent loop with read-only tools (draft only)
 
-- [ ] **Claude client wrapper.** Model ids from config, retries, token and cost accounting into the trace. *Done when:* a unit test with a stubbed client records usage.
+- [~] **Claude client wrapper.** Model ids from config, retries, token and cost accounting into the trace. *(Phase 2 Step 1: model from config, SDK retries, token usage in state. Cost accounting and trace still to do.)* *Done when:* a unit test with a stubbed client records usage.
 - [ ] **Tool schema registry.** Pydantic models → tool definitions, with dispatch and validation of tool inputs. *Done when:* invalid tool input is rejected with a structured error returned to the model.
-- [ ] **Untrusted-content wrapper.** Ticket and KB text are delimited and labeled as data in prompts. *Done when:* unit test verifies the wrapping and escaping of delimiter look-alikes.
+- [x] **Untrusted-content wrapper.** Ticket and KB text are delimited and labeled as data in prompts. *(Ticket text in Phase 2 Step 1; retrieved documents and rerank candidates in Step 2.)* *Done when:* unit test verifies the wrapping and escaping of delimiter look-alikes.
 - [ ] **Triage step (small model).** Structured output: category, confidence, missing fields, reasoning summary. *Done when:* it classifies 5 sample tickets correctly in a smoke test.
 - [ ] **Reasoning loop (strong model).** Tool-use loop with read-only tools and step, token, and time budgets. *Done when:* it runs to completion on a how-to ticket and stops at the budget on a looping stub.
 - [ ] **Draft-only disposition.** The agent outputs a proposed plan and draft reply to the trace with no writes. *Done when:* `support-agent run INC0010001 --dry-run` prints a cited draft.
-- [ ] **Prompt files.** System and step prompts live in versioned files, not inline strings. *Done when:* prompts load from `src/agent/prompts/`.
+- [~] **Prompt files.** System and step prompts live in versioned files, not inline strings. *(Triage prompt done in Phase 2 Step 1.)* *Done when:* prompts load from `src/support_agent/prompts/`.
 
 ## Phase 4: Write tools + human approval
 
 - [ ] **Policy engine.** Declarative policy mapping each action to auto, approval, conditional, or forbidden. *Done when:* unit tests cover every row of the autonomy table.
-- [ ] **Kill switch.** Env plus runtime flag checked before every write. *Done when:* a test shows writes are blocked and reads continue while it's on.
+- [~] **Kill switch.** Env plus runtime flag checked before every write. *(Env flag `AGENT_KILL_SWITCH` blocks work-note writes since Phase 2 Step 1. Runtime flag still to do.)* *Done when:* a test shows writes are blocked and reads continue while it's on.
 - [ ] **Idempotency keys.** Store a key before executing a write and skip on duplicates. *Done when:* replaying a run produces no duplicate side effects in tests.
-- [ ] **`add_work_note` tool.** *Done when:* a work note appears on a PDI ticket and a repeat call is deduplicated.
+- [~] **`add_work_note` tool.** *(Client method, dedupe, and verification built in Phase 2 Step 1; live write and dedupe validated 2026-11-05. Tool wrapper for the agent loop still to do.)* *Done when:* a work note appears on a PDI ticket and a repeat call is deduplicated.
 - [ ] **`update_state` tool.** Only allowed transitions. Resolve and close are refused. *Done when:* a test confirms close is refused, with a policy reason in the trace.
 - [ ] **`draft_reply` → pending approval.** Drafts go to the approvals table, not to ServiceNow. *Done when:* the draft is stored with full context.
 - [ ] **Review UI: list and detail.** A local page showing pending actions, the ticket, the trace, and citations. *Done when:* pending drafts are visible in the browser.

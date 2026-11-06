@@ -115,7 +115,7 @@ Lightweight ADRs. Each entry records the context, the decision, and its conseque
 ## ADR-008: Retrieval with SQLite FTS5 + LLM rerank, synced as the agent identity
 
 - **Date:** 2026-10-27
-- **Status:** Accepted
+- **Status:** Superseded by ADR-013 (2026-11-05). SQLite FTS5 remains as the offline, keyword-only backend.
 
 **Context.** The agent must answer how-to tickets from the KB with citations, find similar or duplicate tickets, and avoid duplicate Jira issues. ServiceNow's Table API text search is weak for ranking. A vector database adds a service and an embeddings vendor.
 
@@ -155,3 +155,91 @@ Lightweight ADRs. Each entry records the context, the decision, and its conseque
 **Decision.** Use one importable package, `src/support_agent/`, with subpackages `servicenow`, `graph`, `tools`, `guardrails`, `review_ui`, plus `config.py` and `cli.py`.
 
 **Consequences.** Unambiguous imports (`from support_agent.servicenow import ...`), standard `pip install -e .`, and the dev server installs the same package through `langgraph.json`.
+
+## ADR-011: LLM triage writes a preliminary internal work note; priority from a matrix
+
+- **Date:** 2026-10-27
+- **Status:** Accepted
+
+**Context.** Phase 2 Step 1 is the first LLM call and the first write to ServiceNow. The assessment must be useful to engineers, impossible to mistake for a decision, and safe to test against a real instance.
+
+**Decision.**
+1. **Structured output.** Claude returns a Pydantic-validated `TriageAnalysis` (summary, impact, urgency, category from a fixed list, hypotheses, troubleshooting steps, missing information) via `messages.parse`. Default model `claude-opus-5-5` at `medium` effort with server-side refusal fallback. Both are configurable (`TRIAGE_MODEL`, `TRIAGE_EFFORT`).
+2. **Priority is computed, not generated.** The model has no priority field. P1–P5 comes from a configurable impact × urgency matrix (ServiceNow's out-of-box lookup by default) and is only recommended. Incident fields are never changed.
+3. **One write path, one field.** `ServiceNowClient.add_work_note` builds the body `{"work_notes": ...}` itself. Customer-visible comments and all other fields are out of reach.
+4. **Dry run by default.** Writes need explicit write mode, an incident listed in `WRITE_TEST_INCIDENTS`, the kill switch off, and no existing triage note (journal marker). Each write is verified by reading the journal back and comparing protected fields.
+
+**Consequences.**
+- The model's judgment is visible and reviewable, while the deterministic parts (priority, what may be written, when) stay in code that tests cover.
+- One triage note per incident. Re-assessing a changed incident needs a later rule (for example, a new note when the description changes).
+- `WRITE_TEST_INCIDENTS` is a development-time gate. When the poller arrives, it becomes a policy on the agent's own assignment group plus the autonomy table (ADR-002).
+- The code default favors quality (Opus 5.5). Development runs use `TRIAGE_MODEL=claude-haiku-5-5`, about 40× cheaper with a comparable assessment on the first live test. Phase 6 evals will decide the production default.
+- Server-side refusal fallback is sent only to models that support it. Haiku 5.5 refusals surface as an analysis error.
+
+## ADR-012: Premium customers get a higher recommended priority, by a deterministic rule
+
+- **Date:** 2026-10-27
+- **Status:** Accepted
+
+**Context.** Enterprise support desks prioritize by contract as well as by impact and urgency: a premium customer's P4 is often handled like a P3. That rule is a business policy. It must be predictable, auditable, and impossible to talk the system into.
+
+**Decision.**
+1. **Separate node after the LLM.** `apply_customer_policy` runs between `analyze_incident` and `write_work_note`. The model estimates impact and urgency; the matrix gives the base priority; the tier rule adjusts it. Studio shows each step.
+2. **Customer = the incident's Company**, falling back to the caller's company (`caller_id.company`) when the incident field is empty. Both come from ServiceNow records, never from ticket text, so "I'm a premium customer" in a description changes nothing.
+3. **Tiers in a committed config file** (`analysis/customer_tiers.json`, override with `CUSTOMER_TIERS_PATH`). Premium: one level higher, never lower than P3, never above P1. Unknown or missing company: the default tier (standard, no change).
+4. **Matched by company name, case-insensitively, whole name only.** Not by sys_id, because sys_ids differ per instance and this config must survive a PDI rebuild.
+5. **The model never sees the tier**, so its impact and urgency estimate stays based on the ticket alone.
+6. **Fail closed.** An unreadable or invalid tier file stops the run before the write, rather than treating a premium customer as standard.
+7. **Still only a recommendation.** The note shows the base and adjusted priority and the reason. The priority field is never written, so the write surface (ADR-011) is unchanged.
+
+**Consequences.**
+- Every adjustment is recorded in `assessment.customer_adjustment` (customer, tier, base, final, rule text) and summarized in the work note.
+- Renaming a company in ServiceNow without updating the config drops it to standard. Production would key on a stable account ID from the CRM.
+- On this PDI the `itil` role can't set `incident.company` (the field write is silently ignored), so the seeded customers come from the callers' companies.
+
+## ADR-013: Hybrid retrieval in Postgres + pgvector, knowledge ingested from its sources
+
+- **Date:** 2026-11-05
+- **Status:** Accepted. Supersedes ADR-008.
+
+**Context.** Triage should be grounded in ERPNext documentation, known upstream bugs, and past tickets. ADR-008 planned keyword search (SQLite FTS5) over KB articles stored in ServiceNow. Two things changed while building it:
+- **Paraphrase matters.** Users describe symptoms in their own words ("I can't find a button to reverse it"), while the right page uses product terms ("Correcting a Submitted Accounting Entry"). Keyword search alone misses those.
+- **ServiceNow wasn't the right home for this content.** The docs live on docs.frappe.io and the bugs on GitHub. Copying them into ServiceNow KB articles added a step that the API can't finish: articles created through the Table API stay in Draft, and the publish workflow reverts API changes to `workflow_state`, even for admin. Publishing needed a person to run a background script in the UI.
+
+**Decision.**
+1. **One Postgres database with two indexes per chunk** (`docker-compose.yml`, image `pgvector/pgvector:0.8.6-pg17`):
+   - **keyword:** a generated, weighted `tsvector` (title > heading > body) with a GIN index, ranked by `ts_rank_cd`. Strong on ERP vocabulary, field names, and exact error strings.
+   - **vector:** a `vector(1024)` column with an HNSW index (cosine). Strong on paraphrase.
+2. **Embeddings from Voyage AI** (`voyage-4`, 1,024 dimensions), Anthropic's recommended provider, called over REST with `requests` (no SDK). Documents and queries use their own `input_type`. The model and dimensions are stored in the index and a mismatch is refused, because vectors from different models aren't comparable.
+3. **Reciprocal Rank Fusion** (k = 60) merges the two rankings, best chunk per document. RRF needs no score calibration between BM25-style ranks and cosine distances.
+4. **The small model reranks** the fused candidates (8 per kind: KB article, known issue, incident) with a 0–10 rubric, under opaque ids so it can only score what was retrieved. Below `KB_RELEVANCE_THRESHOLD` (7) a hit is dropped, and "no match" is a valid outcome.
+5. **Knowledge is ingested directly from its sources** (`scripts/ingest_kb.py`): the docs pages listed in `data/seed/kb_sources.json` and open ERPNext bugs from a GitHub search. Content is cached locally and never committed. Re-runs embed only changed documents (content hash for pages, `updated_at` for issues) and remove documents that disappeared (a closed bug).
+6. **Incidents still sync from ServiceNow as `support_agent`**, incrementally, so ServiceNow ACLs decide which past tickets are searchable.
+7. **Degrade, don't fail.** Embedding outage → keyword-only search with a warning. Sync failure → existing index with a warning. Postgres down → triage without retrieval, and the note says so. Without `RETRIEVAL_DATABASE_URL`, the SQLite FTS5 index (keyword only) is used, which also runs the unit tests.
+
+**Consequences.**
+- Retrieval works on symptoms as well as on terms. Each hit records which retriever found it (`keyword`, `vector`, or both), shown in the run output and the work note.
+- One more service (Postgres) and one more vendor (Voyage). Both are standard in production RAG, and Postgres is also where state and approvals can move later.
+- The knowledge isn't access-controlled by ServiceNow anymore. That's acceptable for public docs and public bugs. A private KB would sync from its own system as the agent identity, like incidents do.
+- On Voyage's free tier (no payment method: about 10K tokens and 3 requests per minute) a full ingest takes minutes, so batches are sized by an estimated token count and 429s wait for the next request slot.
+- The evidence for hybrid over keyword-only is still anecdotal (P2.13). A retrieval eval (hit@3 for keyword, vector, hybrid on the seed tickets) should confirm it.
+
+## ADR-014: Switchable LLM backend: Anthropic API, or the Claude CLI for local development
+
+- **Date:** 2026-11-05
+- **Status:** Accepted
+
+**Context.** Development runs stopped when the API account ran out of credit. The developer has a Claude subscription, which the Claude Code CLI can use in headless mode (`claude -p`) with JSON-schema structured output.
+
+**Decision.**
+- **One small interface** (`llm.py`: `StructuredLLM.parse` → `StructuredResult`) with two backends, chosen by `LLM_BACKEND`:
+  - `api` (default, the production path): the Anthropic SDK, `messages.parse` with a Pydantic output format.
+  - `claude_cli`: `claude -p --output-format json --json-schema ...`, the output validated against the same Pydantic model.
+- **The CLI runs as a pure model call, not an agent:** `--tools ""` (no tools) and `--strict-mcp-config` (no MCP servers), so untrusted ticket text can't steer a session that can run commands. It runs in an empty temporary directory, so no `CLAUDE.md` or project settings are added to the prompt (measured: 669 prompt tokens from an empty directory against ~3,500 from the repository). The prompt goes in on stdin and the system prompt in a file, never in argv.
+- **`ANTHROPIC_API_KEY` is removed from the CLI's environment**, so it uses the subscription login.
+
+**Consequences.**
+- The analyzer and reranker don't know which backend ran. Tests cover both.
+- About 10 seconds per call for the CLI (process start-up), and usage counts against the subscription's limits. Fine for development, not for a queue.
+- API-only features are skipped on the CLI path (the server-side refusal fallback).
+

@@ -42,7 +42,7 @@ Everything about the ServiceNow side of `support-agent`: instance, accounts, rol
 
 ### Synthetic callers
 
-Caller records are plain `sys_user` rows: name, email, title. They have **no roles, no password, and no login**. They only appear as the incident's *Caller*. Six fictional employees of "Brightline Supplies" are defined in `data/seed/callers.json`, all on `@example.com`.
+Caller records are plain `sys_user` rows: name, email, title. They have **no roles, no password, and no login**. They only appear as the incident's *Caller*. Six fictional people are defined in `data/seed/callers.json`, all on `@example.com`. Each belongs to one of three fictional customer companies (`core_company` rows from `data/seed/companies.json`). The agent treats the caller's company as the customer when the incident's own Company is empty. The `itil` role can't set `incident.company` on this PDI; the write is silently ignored.
 
 ### Seeded incidents
 
@@ -63,10 +63,14 @@ Roles are granted to the **group**, not the user, so access is managed in one pl
 |---|---|
 | Knowledge base | **Customer Portal Support** (`SERVICENOW_KNOWLEDGE_BASE`) |
 | Read access | User criteria **"AI Support Agent - KB read"** → group AI Support Agent |
-| Contents | Synthetic articles for the demo customer portal *(to be imported)* plus one `support-agent KB access check` article used by the setup script |
+| Contents | One `support-agent KB access check` article used by the setup script |
 | Out of scope | The instance's demo KBs (IT, Known Error, KCS demo, Knowledge). The agent can't read them, by design |
 
-Why a dedicated KB: KB read access in ServiceNow is controlled by per-knowledge-base user criteria, not roles. Scoping read access to one KB keeps the agent's answers grounded in *our* synthetic content only and avoids a broad knowledge role.
+Why a dedicated KB: KB read access in ServiceNow is controlled by per-knowledge-base user criteria, not roles. Scoping read access to one KB avoids a broad knowledge role.
+
+**The agent doesn't read this KB for answers.** Its knowledge (ERPNext docs and open upstream bugs) is ingested from the sources into the retrieval index (ADR-013), because articles created through the Table API stay in Draft and the publish workflow reverts API changes to `workflow_state`. A private, ServiceNow-hosted KB would be synced into the same index as `support_agent`, the way incidents are.
+
+**Work notes:** read them through the incident's `work_notes` field (`sysparm_display_value=true`), not `sys_journal_field`. The journal table returns 200 with no rows to `support_agent` (row ACL, see §8).
 
 ## 5. Authentication
 
@@ -92,6 +96,10 @@ Reference: [ServiceNow Docs: Basic authentication restriction](https://www.servi
 | `SERVICENOW_PASSWORD` | `.env` | *(generated)* | Leave empty to be prompted by `test_connection.py` |
 | `SERVICENOW_ASSIGNMENT_GROUP` | `.env` | `AI Support Agent` | |
 | `SERVICENOW_KNOWLEDGE_BASE` | `.env` | `Customer Portal Support` | |
+| `WRITE_TEST_INCIDENTS` | `.env` | `INC0010001` | Incidents that `--write` may add a work note to (comma-separated). Empty = all writes refused |
+| `AGENT_KILL_SWITCH` | `.env` | `false` | `true` blocks every write |
+| `CUSTOMER_TIERS_PATH` | `.env` | | Optional replacement for `src/support_agent/analysis/customer_tiers.json` (premium customers) |
+| `DEFAULT_RUN_MODE` | `.env` | `dry_run` | Mode for runs without `mode` (Studio). `write` makes Studio write by default. Restart `langgraph dev` after changing it |
 | `SN_ADMIN_PW` | `.env.admin` | | Setup only. Delete the file when not needed |
 
 To view a stored secret locally, without putting it in chat or logs: `grep SERVICENOW_PASSWORD .env`.
@@ -121,7 +129,7 @@ Requires `admin` to have `snc_basic_auth_api_access` (§5) and `SN_ADMIN_PW` in 
 python3 scripts/seed_incidents.py
 ```
 
-Runs as `seed_loader`. It creates missing callers (matched by `user_name`) and incidents (matched by `correlation_id`), all assigned to AI Support Agent, then reads them back as `support_agent` and prints a table plus a UI link. Re-running creates nothing new.
+Runs as `seed_loader`. It creates missing companies (matched by `name`), callers (matched by `user_name`, company kept in sync) and incidents (matched by `correlation_id`), all assigned to AI Support Agent, then reads them back as `support_agent` and prints a table plus a UI link. Re-running creates nothing new.
 
 ### `scripts/test_connection.py`: read-only connectivity test
 
@@ -166,13 +174,13 @@ The account authenticated but lacks access to the table. Confirm group membershi
 
 ### HTTP 200 with 0 rows
 
-ACLs or user criteria are filtering the rows (the `X-Total-Count` header may still show the unfiltered total). For KB articles, check the knowledge base's *Can read* user criteria (§4).
+ACLs or user criteria are filtering the rows (the `X-Total-Count` header may still show the unfiltered total). For KB articles, check the knowledge base's *Can read* user criteria (§4). `sys_journal_field` does this for `support_agent`; read work notes through the incident instead (§4).
 
 ## 9. Rebuild checklist (after a reclaim or wipe)
 
 1. Request a new PDI. Update `SERVICENOW_INSTANCE_URL` in `.env`, and clear `SERVICENOW_PASSWORD` so a new one is generated.
 2. Log in as `admin`, set a password, add `snc_basic_auth_api_access` to `admin`, and put the password in `.env.admin`.
 3. `python3 scripts/servicenow_setup.py` should show three PASS lines.
-4. `python3 scripts/seed_incidents.py` (and the KB seeder, once it exists).
+4. `python3 scripts/seed_incidents.py`, then `python3 scripts/build_index.py --rebuild` so the retrieval index drops the old instance's incidents.
 5. Remove `snc_basic_auth_api_access` from `admin`.
 6. Update `SERVICENOW.local.md`.
