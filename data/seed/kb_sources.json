@@ -1,0 +1,45 @@
+{
+  "_comment": "Sources for the demo knowledge base. Only these pointers are committed; scripts/seed_kb.py downloads the content at seed time into the private PDI (and a gitignored cache under data/). Docs: ERPNext documentation at docs.frappe.io, copied with attribution. Known issues: open ERPNext GitHub issues, one KB article each, retired when the issue closes.",
+  "docs": {
+    "base_url": "https://docs.frappe.io/erpnext/",
+    "pages": [
+      "system-settings",
+      "accounts-settings",
+      "set-language",
+      "translations",
+      "custom-translations",
+      "payment-entry",
+      "payment-request",
+      "payment-entry-outstanding-and-currency-problems",
+      "payment-reconciliation-problems",
+      "advance-payment-entry",
+      "reconcile-advance-payment-made-to-the-supplier",
+      "purchase-invoice",
+      "sales-invoice",
+      "debit-note",
+      "sales-returns-and-credit-notes-problems",
+      "allocating-credit-note-and-payment",
+      "exchange-rate-revaluation",
+      "multi-currency-accounting",
+      "multi-currency-problems",
+      "exchange-rate-field-frozen",
+      "cost-center",
+      "distributed-cost-center",
+      "cancel-delete-or-change-sales-documents",
+      "correct-a-submitted-accounting-entry",
+      "edit-submitted-document",
+      "unreconciliation",
+      "period-closing-voucher",
+      "fiscal-year-and-opening-balance-problems",
+      "journal-entry-party-rows-and-large-entries",
+      "due-date-and-payment-terms-problems",
+      "invoice-rounding-issue",
+      "bank-reconciliation"
+    ]
+  },
+  "known_issues": {
+    "repo": "frappe/erpnext",
+    "query": "is:issue state:open label:accounts label:bug",
+    "limit": 40
+  }
+}

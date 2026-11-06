@@ -1,0 +1,8 @@
+{
+  "_comment": "Fictional customer companies served by the support desk. Tier assignments live in src/support_agent/analysis/customer_tiers.json, not in ServiceNow.",
+  "companies": [
+    {"name": "Brightline Supplies", "customer": "true"},
+    {"name": "Cobalt Ridge Manufacturing", "customer": "true"},
+    {"name": "Harborview Foods", "customer": "true"}
+  ]
+}

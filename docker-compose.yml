@@ -1,0 +1,27 @@
+# Local infrastructure for the agent. Start: docker compose up -d
+#
+# retrieval-db: Postgres 17 with pgvector, the hybrid search index (keyword + vector)
+# over KB articles, known issues, and incidents. It only caches ServiceNow data, so
+# `docker compose down -v` is always safe; scripts/build_index.py rebuilds it.
+#
+# The password comes from RETRIEVAL_DB_PASSWORD in .env (Compose reads .env for
+# variable substitution). The port is bound to localhost only.
+services:
+  retrieval-db:
+    image: pgvector/pgvector:0.8.6-pg17
+    environment:
+      POSTGRES_DB: support_agent
+      POSTGRES_USER: support_agent
+      POSTGRES_PASSWORD: ${RETRIEVAL_DB_PASSWORD:?set RETRIEVAL_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - retrieval-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support_agent -d support_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  retrieval-db:

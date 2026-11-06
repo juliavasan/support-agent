@@ -36,14 +36,21 @@ def test_graph_path_resolves_to_compiled_graph() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     graph = getattr(module, attr)
-    assert {"retrieve_incident", "format_incident"} <= set(graph.get_graph().nodes)
+    assert {
+        "retrieve_incident",
+        "format_incident",
+        "analyze_incident",
+        "write_work_note",
+    } <= set(graph.get_graph().nodes)
 
 
-def test_graph_input_schema_is_incident_id_only() -> None:
+def test_graph_input_schema_is_incident_id_and_mode() -> None:
     from support_agent.graph.workflow import graph
 
     schema = graph.get_input_jsonschema()
-    assert set(schema["properties"]) == {"incident_id"}
+    assert set(schema["properties"]) == {"incident_id", "mode"}
+    assert schema["required"] == ["incident_id"]  # mode is optional and defaults to dry run
+    assert set(schema["properties"]["mode"]["enum"]) == {"dry_run", "write"}
 
 
 @pytest.mark.live

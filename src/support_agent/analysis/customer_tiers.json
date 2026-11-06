@@ -1,0 +1,19 @@
+{
+  "_comment": "Customer tiers and the deterministic priority rule for each. Customers are matched by the incident's Company (a ServiceNow reference field, not ticket text), case-insensitively. Company names are fictional. Override with CUSTOMER_TIERS_PATH.",
+  "default_tier": "standard",
+  "tiers": {
+    "premium": {
+      "priority_boost": 1,
+      "worst_priority": 3,
+      "description": "Premium support contract: one level higher, never below P3"
+    },
+    "standard": {
+      "priority_boost": 0,
+      "worst_priority": 5,
+      "description": "Standard support: impact x urgency matrix only"
+    }
+  },
+  "customers": {
+    "Cobalt Ridge Manufacturing": "premium"
+  }
+}

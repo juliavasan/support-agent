@@ -11,7 +11,9 @@ license = { text = "MIT" }
 authors = [{ name = "Julia Vasan" }]
 requires-python = ">=3.11"
 dependencies = [
+    "anthropic>=2.3,<3",
     "langgraph>=1.2,<2",
+    "psycopg[binary]>=3.2,<4",
     "pydantic>=2.7",
     "python-dotenv>=1.0",
     "requests>=2.29",
@@ -34,6 +36,13 @@ src = ["src"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tests use assert and obviously fake credentials.
+"tests/*" = ["S101", "S105", "S106"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["support_agent", "conftest"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
@@ -42,8 +51,14 @@ mypy_path = "src"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+support_agent = ["prompts/*.md", "analysis/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-markers = ["live: hits the real ServiceNow instance or a running langgraph dev server (opt-in)"]
-addopts = "-m 'not live'"
+markers = [
+    "live: hits the real ServiceNow instance or a running langgraph dev server (opt-in)",
+    "postgres: needs the local pgvector database from docker-compose.yml (opt-in)",
+]
+addopts = "-m 'not live and not postgres'"

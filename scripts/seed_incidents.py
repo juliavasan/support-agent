@@ -1,11 +1,14 @@
-"""Seed synthetic callers and incidents into ServiceNow, then read them back.
+"""Seed synthetic companies, callers, and incidents into ServiceNow, then read them back.
 
-Callers come from data/seed/callers.json, incidents from data/seed/incidents.json.
+Companies come from data/seed/companies.json, callers from data/seed/callers.json,
+incidents from data/seed/incidents.json. The customer is the caller's company: the agent
+reads it via caller_id.company, because the itil role can't set incident.company here.
 Writes run as the `seed_loader` account (never the agent). The read-back runs as
 `support_agent` to prove the agent can see its queue.
 
-Idempotent: callers are matched by user_name, incidents by correlation_id
-(= seed_id), so re-running never creates duplicates.
+Idempotent: companies are matched by name, callers by user_name, incidents by
+correlation_id (= seed_id), so re-running never creates duplicates. Existing callers
+get their company set if it is missing or different.
 
 Usage: python3 scripts/seed_incidents.py
 """
@@ -67,6 +70,15 @@ class TableClient:
         resp.raise_for_status()
         return resp.json()["result"]
 
+    def update(self, table: str, sys_id: str, body: dict[str, Any]) -> None:
+        resp = self.session.patch(
+            f"{self._url(table)}/{sys_id}",
+            json=body,
+            params={"sysparm_fields": "sys_id"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+
 
 def sys_id_of(client: TableClient, table: str, query: str) -> str | None:
     rows = client.query(table, query, "sys_id", limit=1)
@@ -81,19 +93,44 @@ def main() -> int:
     loader = TableClient(base_url, env["SERVICENOW_SEED_USERNAME"], env["SERVICENOW_SEED_PASSWORD"])
     agent = TableClient(base_url, env["SERVICENOW_USERNAME"], env["SERVICENOW_PASSWORD"])
 
+    companies = json.loads((SEED_DIR / "companies.json").read_text())["companies"]
     callers = json.loads((SEED_DIR / "callers.json").read_text())["callers"]
     incidents = json.loads((SEED_DIR / "incidents.json").read_text())["incidents"]
 
     print(f"Seeding {base_url} as {env['SERVICENOW_SEED_USERNAME']}")
 
+    company_ids: dict[str, str] = {}
+    for company in companies:
+        existing = sys_id_of(loader, "core_company", f"name={company['name']}")
+        if existing:
+            company_ids[company["name"]] = existing
+            print(f"  = company {company['name']}")
+        else:
+            try:
+                created = loader.create("core_company", company)
+            except requests.HTTPError as exc:
+                print(f"  ! could not create company {company['name']}: {exc}")
+                print("    Create it as admin (Organization > Companies) and re-run.")
+                return 1
+            company_ids[company["name"]] = created["sys_id"]
+            print(f"  + company {company['name']}")
+
     caller_ids: dict[str, str] = {}
     for caller in callers:
-        existing = sys_id_of(loader, "sys_user", f"user_name={caller['user_name']}")
-        if existing:
-            caller_ids[caller["user_name"]] = existing
-            print(f"  = caller {caller['user_name']}")
+        company_id = company_ids[caller["company"]]
+        body = {**caller, "company": company_id}
+        rows = loader.query(
+            "sys_user", f"user_name={caller['user_name']}", "sys_id,company", limit=1
+        )
+        if rows:
+            caller_ids[caller["user_name"]] = rows[0]["sys_id"]
+            if rows[0]["company"] != caller["company"]:
+                loader.update("sys_user", rows[0]["sys_id"], {"company": company_id})
+                print(f"  ~ caller {caller['user_name']} -> {caller['company']}")
+            else:
+                print(f"  = caller {caller['user_name']}")
         else:
-            created = loader.create("sys_user", {**caller, "active": "true"})
+            created = loader.create("sys_user", {**body, "active": "true"})
             caller_ids[caller["user_name"]] = created["sys_id"]
             print(f"  + caller {caller['user_name']}")
 
@@ -108,30 +145,38 @@ def main() -> int:
             print(f"  = {existing[0]['number']}  {inc['seed_id']}")
             continue
         body = {k: v for k, v in inc.items() if k not in LOCAL_ONLY_FIELDS}
-        body.update({
-            "caller_id": caller_ids[inc["caller"]],
-            "assignment_group": group_id,
-            "contact_type": "email",
-            "correlation_id": inc["seed_id"],
-            "correlation_display": "support-agent seed",
-            "impact": str(inc["impact"]),
-            "urgency": str(inc["urgency"]),
-        })
+        body.update(
+            {
+                "caller_id": caller_ids[inc["caller"]],
+                "assignment_group": group_id,
+                "contact_type": "email",
+                "correlation_id": inc["seed_id"],
+                "correlation_display": "support-agent seed",
+                "impact": str(inc["impact"]),
+                "urgency": str(inc["urgency"]),
+            }
+        )
         created = loader.create("incident", body)
         print(f"  + {created['number']}  {inc['seed_id']}")
 
-    seed_query = f"assignment_group.name={group_name}^correlation_idSTARTSWITHerpnext-gh-^ORDERBYnumber"
+    seed_query = (
+        f"assignment_group.name={group_name}^correlation_idSTARTSWITHerpnext-gh-^ORDERBYnumber"
+    )
     print(f"\nRead back as {env['SERVICENOW_USERNAME']}:")
     rows = agent.query(
-        "incident", seed_query,
-        "number,caller_id,short_description,state,priority,category,correlation_id",
+        "incident",
+        seed_query,
+        "number,caller_id,caller_id.company,short_description,state,priority,category,correlation_id",
     )
-    print(f"| {'Number':<11} | {'Caller':<14} | {'Priority':<12} | {'State':<8} | Short description")
-    print(f"|{'-' * 13}|{'-' * 16}|{'-' * 14}|{'-' * 10}|{'-' * 50}")
+    print(
+        f"| {'Number':<11} | {'Caller':<14} | {'Company':<26} | {'Priority':<12} "
+        f"| {'State':<8} | Short description"
+    )
+    print(f"|{'-' * 13}|{'-' * 16}|{'-' * 28}|{'-' * 14}|{'-' * 10}|{'-' * 50}")
     for r in rows:
         print(
-            f"| {r['number']:<11} | {r['caller_id'][:14]:<14} | {r['priority'][:12]:<12} "
-            f"| {r['state'][:8]:<8} | {r['short_description'][:70]}"
+            f"| {r['number']:<11} | {r['caller_id'][:14]:<14} | {r['caller_id.company'][:26]:<26} "
+            f"| {r['priority'][:12]:<12} | {r['state'][:8]:<8} | {r['short_description'][:60]}"
         )
     print(f"\n{len(rows)} seeded incident(s) visible to the agent.")
 

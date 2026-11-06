@@ -1,0 +1,6 @@
+{
+  "_comment": "Recommended priority (1 = highest) by impact (rows) and urgency (columns). Mirrors the ServiceNow out-of-box incident priority lookup. Override with PRIORITY_MATRIX_PATH.",
+  "High":   {"High": 1, "Medium": 2, "Low": 3},
+  "Medium": {"High": 2, "Medium": 3, "Low": 4},
+  "Low":    {"High": 3, "Medium": 4, "Low": 5}
+}
